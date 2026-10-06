@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quiz Host</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/quiz.css">
+  <style>
+    main { max-width: 560px; margin: 0 auto; padding: 8vh 16px 32px; display: grid; gap: 1.5rem; }
+    .logo { font-size: clamp(2.6rem, 9vw, 4rem); margin: 0; line-height: 1; color: var(--accent); text-shadow: 0 0 30px rgba(255, 210, 61, 0.4); }
+    .tagline { margin: 0.5rem 0 0; color: var(--muted); font-size: 1.1rem; }
+    form { display: grid; gap: 0.9rem; }
+    label { display: grid; gap: 0.4rem; font-weight: 600; }
+    .row { display: flex; gap: 0.6rem; }
+    .row input { flex: 1; text-transform: uppercase; letter-spacing: 0.2em; min-width: 0; }
+    .error { color: var(--red); min-height: 1.2em; margin: 0; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 class="logo">Quiz Host</h1>
+    <p class="tagline">Un animateur vocal un brin moqueur, des buzzers sur vos téléphones. Que le meilleur gagne (et que les autres assument).</p>
+  </header>
+
+  <section class="panel">
+    <h2>Créer une partie</h2>
+    <form id="create-form">
+      <label>Nombre de questions
+        <select name="total">
+          <option value="5" selected>5 — format apéro</option>
+          <option value="10">10 — soirée sérieuse</option>
+          <option value="15">15 — marathon</option>
+        </select>
+      </label>
+      <button type="submit">Ouvrir le plateau</button>
+      <p class="error" id="create-error"></p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Rejoindre</h2>
+    <form id="join-form" class="row">
+      <input name="code" maxlength="4" placeholder="CODE" autocomplete="off" aria-label="Code de la salle">
+      <button type="submit" class="secondary">Go</button>
+    </form>
+  </section>
+</main>
+
+<script type="module">
+  import { storage } from "/static/common.js";
+
+  const session = storage("session");
+
+  document.getElementById("create-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const error = document.getElementById("create-error");
+    error.textContent = "";
+    const total = Number(new FormData(event.target).get("total"));
+    try {
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ total_questions: total }),
+      });
+      if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
+      const room = await response.json();
+      session.set(`quiz.hostKey.${room.code}`, room.host_key);
+      // The key also travels in the fragment (never sent to the server) for when storage is unavailable.
+      location.href = `/host/${room.code}#key=${encodeURIComponent(room.host_key)}`;
+    } catch (err) {
+      error.textContent = `Impossible de créer la partie : ${err.message}`;
+    }
+  });
+
+  document.getElementById("join-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = new FormData(event.target).get("code").trim().toUpperCase();
+    if (code) location.href = `/play/${encodeURIComponent(code)}`;
+  });
+</script>
+</body>
+</html>

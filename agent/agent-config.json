@@ -1,0 +1,65 @@
+{
+  "name": "Quiz Host — Max",
+  "language": "fr",
+  "llm": "gemini-2.5-flash",
+  "prompt_file": "system_prompt.fr.txt",
+  "first_message": "[excited] Bonsoir, bonsoir ! Ici Max, votre animateur. Scannez le QR code, choisissez un pseudo… et préparez déjà vos excuses pour les mauvaises réponses.",
+  "tts": {
+    "model_id": "eleven_v3_conversational",
+    "expressive_mode": true
+  },
+  "max_duration_seconds": 1800,
+  "private": true,
+  "tools": [
+    {
+      "type": "client",
+      "name": "get_game_state",
+      "description": "Renvoie l'état du jeu : phase, numéro de question, joueurs, scores, qui a la main et la prochaine étape (nextStep). À utiliser pour se resynchroniser à tout moment.",
+      "expects_response": true,
+      "response_timeout_secs": 5
+    },
+    {
+      "type": "client",
+      "name": "start_game",
+      "description": "Sort du lobby et démarre la partie. Renvoie la première question à lire, avec ses réponses acceptées (secrètes).",
+      "expects_response": true,
+      "response_timeout_secs": 5
+    },
+    {
+      "type": "client",
+      "name": "next_question",
+      "description": "Passe à la question suivante et la renvoie (index, total, catégorie, question, réponses acceptées secrètes). Après la dernière question, renvoie finished: true et le podium.",
+      "expects_response": true,
+      "response_timeout_secs": 5
+    },
+    {
+      "type": "client",
+      "name": "submit_verdict",
+      "description": "Juge la réponse du joueur qui a la main. Renvoie le nouvel état, les scores et la prochaine étape.",
+      "expects_response": true,
+      "response_timeout_secs": 5,
+      "parameters": {
+        "type": "object",
+        "required": ["playerId", "correct"],
+        "properties": {
+          "playerId": {"type": "string", "description": "L'id du joueur qui a buzzé, tel que donné dans le message BUZZ."},
+          "correct": {"type": "boolean", "description": "true si la réponse est correcte, false sinon."}
+        }
+      }
+    },
+    {
+      "type": "client",
+      "name": "reveal_answer",
+      "description": "Renvoie la réponse officielle de la question en cours, une fois la question close (bonne réponse, timeout ou plus personne pour répondre).",
+      "expects_response": true,
+      "response_timeout_secs": 5
+    },
+    {
+      "type": "client",
+      "name": "get_scores",
+      "description": "Renvoie le classement actuel, avec des faits pour taquiner les joueurs (teasingMaterial).",
+      "expects_response": true,
+      "response_timeout_secs": 5
+    }
+  ]
+}
