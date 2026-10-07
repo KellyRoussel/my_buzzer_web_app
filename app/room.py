@@ -131,6 +131,7 @@ class Room:
             "reveal_answer": lambda: (self.game.reveal_answer(), [{"type": "answer_revealed"}]),
             "get_scores": lambda: (self.game.scores_payload(), []),
             "reading_done": lambda: ({"ok": True}, self.game.reading_done(now)),
+            "open_floor": lambda: ({"ok": True}, self.game.open_floor(now)),
             "pause": lambda: ({"ok": True}, self.game.pause(now)),
             "resume": lambda: ({"ok": True}, self.game.resume(now)),
         }

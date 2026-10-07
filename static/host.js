@@ -11,13 +11,17 @@ const session = storage("session");
 const $ = (id) => document.getElementById(id);
 
 const ACTIVE_PHASES = ["QUESTION_READING", "BUZZ_OPEN", "ANSWERING", "REVEAL"];
-const READING_MIN_MS = 1500; // ignore agent pauses right after a question opens
 const START_FALLBACK_MS = 8000;
+// After a buzz the agent calls the player ("Kelly ?"); the mic opens once it stops talking.
+const FLOOR_GRACE_MS = 250;     // let the last syllable play out before opening the mic
+const FLOOR_SILENT_MS = 2500;   // the agent did not say anything: open anyway
+const FLOOR_MAX_MS = 4500;      // never wait longer (the server opens it at 5 s regardless)
 
 let state = null;
 let agentConfigured = false;
 let answerTimeUp = false;
-let questionStartedAt = 0;
+let questionSpoken = false; // has the agent actually read the current question out loud?
+let floorGate = null; // pending "open the floor" after a buzz: { sentAt, sawSpeech, timers }
 let deadlineAt = null;
 let renderedQuestion = null;
 let celebrated = false;
@@ -143,10 +147,22 @@ const agent = new QuizAgent({
   },
   onMode: (mode, previous) => {
     renderAgent();
-    // The agent stopped talking after reading the question: start the buzz countdown.
-    if (previous === "speaking" && mode === "listening" && state?.phase === "QUESTION_READING"
-        && performance.now() - questionStartedAt > READING_MIN_MS) {
-      action("reading_done").catch(() => {});
+    // A *new* speaking turn after the BUZZ message (an ongoing one is the old, ducked speech).
+    if (mode === "speaking" && previous !== "speaking" && floorGate) floorGate.sawSpeech = true;
+    if (previous !== "speaking" || mode !== "listening") return;
+    // The agent stopped talking after calling the player who buzzed: give them the floor.
+    if (floorGate?.sawSpeech) setTimeout(() => openFloor("agent done"), FLOOR_GRACE_MS);
+    // The agent stopped talking *after* reading the question (not after commenting on the
+    // previous answer): start the buzz countdown.
+    if (state?.phase === "QUESTION_READING" && questionSpoken) action("reading_done").catch(() => {});
+  },
+  onAgentText: (text) => {
+    if (floorGate) floorGate.sawSpeech = true;
+    if (state?.phase === "QUESTION_READING" && !questionSpoken && state.question
+        && mentionsQuestion(text, state.question.text)) {
+      questionSpoken = true;
+      log("agent", "question read out loud");
+      render();
     }
   },
   onLog: log,
@@ -156,7 +172,39 @@ const agent = new QuizAgent({
 function desiredMicOpen() {
   if (!agent.connected || !state || state.paused) return false;
   if (state.phase === "LOBBY" || state.phase === "FINISHED") return true;
-  return state.phase === "ANSWERING" && !answerTimeUp;
+  return state.phase === "ANSWERING" && state.floorOpen && !answerTimeUp;
+}
+
+const normalize = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .replace(/\[[^\]]*\]/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Does what the agent said contain the question? (Tolerates small rewordings.) */
+function mentionsQuestion(said, question) {
+  const saidWords = new Set(normalize(said).split(" "));
+  const keyWords = normalize(question).split(" ").filter((w) => w.length > 3);
+  if (keyWords.length === 0) return true;
+  return keyWords.filter((w) => saidWords.has(w)).length / keyWords.length >= 0.6;
+}
+
+function armFloorGate() {
+  clearFloorGate();
+  floorGate = { sentAt: performance.now(), sawSpeech: false, timers: [] };
+  floorGate.timers.push(setTimeout(() => {
+    if (floorGate && !floorGate.sawSpeech && agent.mode !== "speaking") openFloor("agent silent");
+  }, FLOOR_SILENT_MS));
+  floorGate.timers.push(setTimeout(() => openFloor("timeout"), FLOOR_MAX_MS));
+}
+
+function clearFloorGate() {
+  if (floorGate) floorGate.timers.forEach(clearTimeout);
+  floorGate = null;
+}
+
+function openFloor(reason) {
+  if (!floorGate) return;
+  clearFloorGate();
+  log("agent", `floor open (${reason})`);
+  action("open_floor").catch(() => {});
 }
 
 function applyMic() {
@@ -204,20 +252,31 @@ function onEvent(event) {
       }
       break;
     case "question":
-      questionStartedAt = performance.now();
       answerTimeUp = false;
+      questionSpoken = !agent.connected;
       sfx("question");
+      // Without the agent, the host reads the question aloud right away: start the countdown.
+      if (!agent.connected) action("reading_done").catch(() => {});
       break;
     case "buzz_winner": {
       answerTimeUp = false;
       sfx("buzz");
+      if (!agent.connected) {
+        action("open_floor").catch(() => {});
+        break;
+      }
       agent.duck();
+      armFloorGate();
       const speed = event.reactionS != null ? ` en ${String(event.reactionS).replace(".", ",")} s` : "";
       const text = `BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed}. `
-        + `Arrête-toi immédiatement, donne-lui la parole en trois mots (« ${event.name}, on t'écoute ! ») `
-        + `et écoute UNE réponse, puis appelle submit_verdict avec playerId "${event.playerId}".`;
+        + `Arrête-toi immédiatement et dis UNIQUEMENT « ${event.name} ? », rien d'autre : son micro s'ouvre `
+        + `dès que tu te tais. Écoute UNE réponse, puis appelle submit_verdict avec playerId "${event.playerId}".`;
       if ($("buzz-as-context").checked) agent.context(text);
       else tellAgent(text);
+      break;
+    }
+    case "floor_open": {
+      clearFloorGate();
       break;
     }
     case "buzz_timeout":
@@ -349,6 +408,7 @@ document.addEventListener("keydown", (event) => {
 
 function onState(next) {
   state = next;
+  if (state.phase !== "ANSWERING" || state.floorOpen) clearFloorGate();
   deadlineAt = state.deadlineIn != null ? performance.now() / 1000 + state.deadlineIn : null;
   render();
   applyMic();
@@ -394,12 +454,14 @@ function renderLobby() {
 
 function renderStage() {
   const question = state.question;
-  const key = `${state.questionNumber}`;
+  // With the agent, the question appears on screen as it is read out, not before.
+  const visible = !agent.connected || questionSpoken || state.phase !== "QUESTION_READING";
+  const key = `${state.questionNumber}-${visible}`;
   if (question && renderedQuestion !== key) {
     renderedQuestion = key;
     // Re-insert the node to replay the entrance animation.
     const node = $("q-text");
-    node.textContent = question.text;
+    node.textContent = visible ? question.text : "🎙️ Écoutez bien…";
     node.replaceWith(node.cloneNode(true));
   }
   $("q-progress").textContent = `Question ${state.questionNumber}/${state.totalQuestions}`;
@@ -409,8 +471,9 @@ function renderStage() {
   const answering = state.phase === "ANSWERING" ? state.answering : null;
   $("answering").classList.toggle("hidden", !answering);
   if (answering) {
-    const listening = agent.connected && !answerTimeUp;
-    $("answering-text").textContent = listening ? `🎙️ À l'écoute de ${playerName(answering)}` : `${playerName(answering)} a la main`;
+    const name = playerName(answering);
+    $("answering-text").textContent = !state.floorOpen ? `🔔 ${name} a buzzé !`
+      : agent.connected && !answerTimeUp ? `🎙️ À l'écoute de ${name}` : `${name} a la main`;
   }
 
   $("answer").classList.toggle("hidden", !state.answer);
@@ -476,7 +539,7 @@ function renderAgent() {
 
 function animateTimer() {
   const bar = $("timer-bar");
-  if (state && deadlineAt && !state.paused && state.deadlineKind !== "reading") {
+  if (state && deadlineAt && !state.paused && !["reading", "floor"].includes(state.deadlineKind)) {
     const remaining = Math.max(0, deadlineAt - performance.now() / 1000);
     bar.style.width = `${Math.min(100, (remaining / (state.deadlineTotal || 20)) * 100)}%`;
   } else {

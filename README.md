@@ -128,8 +128,8 @@ Buzzing is already allowed while the question is being read, as in TV quizzes.
 |---|---|
 | Right answer | +1, the question closes |
 | Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
-| No buzz | 20 s after the agent stops reading (fallback: 15 s after the question opens) |
-| Answer window | 8 s of open mic, then the agent must judge; counted wrong after 20 s without a verdict |
+| No buzz | 20 s after the agent has read the question out loud (fallback: 25 s after the question opens) |
+| Answer window | The agent says the player's name; when it stops talking the mic opens for 8 s, then the agent must judge. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
 ## Design choices
@@ -152,7 +152,17 @@ periodic pings (the socket already answers `ping` with `pong`), then arbitrate o
 
 The host computer's mic hears the whole room, so it is **muted by default** while the agent
 reads and while players think. It opens only in the lobby, at the end, and for the player
-who has the hand (8 s). A banner shows "🎙️ À l'écoute de Léa". Because the mic is muted, the
+who has the hand. Even then, it waits for the agent: after a buzz the agent only says the
+player's name ("Léa ?"), and the host screen opens the mic (and starts the 8 s answer window)
+once the agent stops talking, so the player never answers over the host. The phone shows
+"C'EST TOI" and then "PARLE !", and a banner on the TV shows "🎙️ À l'écoute de Léa".
+
+The buzz countdown follows the same idea. The agent often comments on the previous answer
+before reading the next question, so "the agent stopped talking" is not enough: the host
+screen waits until the agent's transcript contains the question, shows the question on the
+TV at that moment, and starts the 20 s countdown when the agent finishes that turn.
+
+ Because the mic is muted, the
 app drives the agent with text messages: `BUZZ`, `TIMEOUT`, `FIN_DU_TEMPS`… (see
 [`agent/agent-config.md`](agent/agent-config.md)). If someone buzzes while the agent is still
 talking, the host screen ducks the agent's volume until its next turn starts.

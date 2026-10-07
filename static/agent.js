@@ -28,13 +28,15 @@ export class QuizAgent {
    * @param {Record<string, (params: any) => Promise<any>>} options.tools  client tools, by name
    * @param {(status: string) => void} options.onStatus
    * @param {(mode: string, previous: string) => void} options.onMode
+   * @param {(text: string) => void} [options.onAgentText]  what the agent says, as text
    * @param {(kind: string, text: string, data?: any) => void} options.onLog
    */
-  constructor({ getCredentials, tools, onStatus, onMode, onLog }) {
+  constructor({ getCredentials, tools, onStatus, onMode, onAgentText, onLog }) {
     this.getCredentials = getCredentials;
     this.tools = tools;
     this.onStatus = onStatus;
     this.onMode = onMode;
+    this.onAgentText = onAgentText;
     this.onLog = onLog;
     this.conversation = null;
     this.status = "disconnected";
@@ -66,7 +68,10 @@ export class QuizAgent {
         },
         onStatusChange: ({ status }) => this.setStatus(status),
         onModeChange: ({ mode }) => this.setMode(mode),
-        onMessage: ({ role, message }) => this.onLog("agent", `${role === "agent" ? "🗣️" : "👂"} ${message}`),
+        onMessage: ({ role, message }) => {
+          this.onLog("agent", `${role === "agent" ? "🗣️" : "👂"} ${message}`);
+          if (role === "agent") this.onAgentText?.(message);
+        },
         onError: (message, context) => this.onLog("error", `agent error: ${message}`, context),
       };
       if (credentials.mode === "token") options.conversationToken = credentials.conversationToken;

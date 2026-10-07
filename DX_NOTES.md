@@ -78,6 +78,21 @@ package? Everything that depends on a live voice session is listed at the end un
    models". It would be friendlier if the API returned a warning when the flag is set on a
    model that ignores it.
 
+## Observed in the first live game
+
+1. **The agent talked over the player.** After a buzz, the agent said "Kelly, on t'écoute !"
+   while the mic was already open, so the player answered over the agent and the
+   transcription was garbled. In a voice app with external turn triggers, *when* to open
+   the mic is the app's job. The fix: the agent only says the name, and the host screen opens
+   the mic on the agent's next speaking → listening transition (with timeouts).
+2. **`onModeChange` is not "the agent finished reading".** The agent often comments on the
+   previous answer, calls `next_question`, then reads the question, sometimes as separate
+   turns with a listening gap in between. Using the first speaking → listening transition
+   started the buzz countdown before the question was even heard. The fix: watch the
+   agent's text (`onMessage`, role `agent`) for the question, then wait for the end of that
+   turn. *Suggestion:* expose turn boundaries tied to tool calls (for example "the turn that
+   follows this tool result has finished playing"), so apps don't have to match transcripts.
+
 ## To verify live
 
 Measured on real games with the debug panel (`D` on the host screen, which logs WebSocket
