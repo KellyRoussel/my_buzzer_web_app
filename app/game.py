@@ -69,10 +69,7 @@ class GameSettings:
     song_window_s: float = 25.0
     # Shorter window after a wrong answer, to keep the pace up.
     rebuzz_window_s: float = 10.0
-    # After a buzz, the agent says the player's name; the floor (open mic + answer window) opens
-    # when it stops talking. If the host never reports it, open the floor after this delay.
-    floor_fallback_s: float = 5.0
-    # Microphone window given to the player who has the hand, once the floor is open.
+    # Microphone window given to the player who has the hand, from the moment they buzz.
     answer_window_s: float = 8.0
     # Safety net: if nobody submits a verdict, the answer is counted wrong.
     answer_hard_timeout_s: float = 20.0
@@ -125,7 +122,6 @@ class Game:
         self.buzz_log: list[BuzzRecord] = []
         self.buzz_opened_at: float | None = None
         self.answer_started_at: float | None = None
-        self.floor_open = False
         self.deadline: float | None = None
         self.deadline_kind: str | None = None
         self.deadline_total: float | None = None
@@ -186,7 +182,6 @@ class Game:
         if force and self.phase in (Phase.QUESTION_READING, Phase.BUZZ_OPEN, Phase.ANSWERING):
             self.phase = Phase.REVEAL
             self.answering = None
-            self.floor_open = False
             self._clear_deadline()
             events.append({"type": "question_skipped", "questionNumber": self.question_index + 1})
         if self.phase in (Phase.QUESTION_READING, Phase.BUZZ_OPEN, Phase.ANSWERING):
@@ -224,9 +219,8 @@ class Game:
         if result == BuzzResult.ACCEPTED:
             self.phase = Phase.ANSWERING
             self.answering = player_id
-            self.floor_open = False
-            self.answer_started_at = None
-            self._set_deadline("floor", now, self.settings.floor_fallback_s)
+            self.answer_started_at = now
+            self._set_deadline("answer", now, self.settings.answer_window_s)
             reaction = now - self.buzz_opened_at if self.buzz_opened_at is not None else None
             events.append({
                 "type": "buzz_winner",
@@ -243,17 +237,6 @@ class Game:
                 events.append({"type": "locked_spam", "playerId": player_id, "name": player.name,
                                "attempts": player.spam_this_question})
         return result, events
-
-    def open_floor(self, now: float) -> list[Event]:
-        """The agent has finished calling the player: open the mic and start the answer window."""
-        if self.phase != Phase.ANSWERING or self.floor_open:
-            return []
-        self.floor_open = True
-        self.answer_started_at = now
-        self._set_deadline("answer", now, self.settings.answer_window_s)
-        player = self.players[self.answering]
-        return [{"type": "floor_open", "playerId": player.id, "name": player.name,
-                 "answerWindowS": self.settings.answer_window_s}]
 
     def submit_verdict(
         self,
@@ -342,8 +325,6 @@ class Game:
         self.deadline = self.deadline_kind = None
         if kind == "reading":
             return self.start_timer(now)
-        if kind == "floor":
-            return self.open_floor(now)
         if kind == "buzz":
             self.phase = Phase.REVEAL
             return [{"type": "buzz_timeout", **self._progress()}]
@@ -417,7 +398,6 @@ class Game:
             ],
             "ranking": self.ranking(),
             "answering": self.answering,
-            "floorOpen": self.floor_open,
             **self._deadline_view(now),
             "question": None,
             "answer": None,
@@ -450,7 +430,6 @@ class Game:
             },
             "locked": player_id in self.locked,
             "hasHand": self.answering == player_id,
-            "floorOpen": self.floor_open,
             "answeringName": self.players[self.answering].name if self.answering else None,
             "canBuzz": self.phase in BUZZABLE_PHASES and player_id not in self.locked and not self.paused,
             **self._deadline_view(now),
@@ -485,7 +464,6 @@ class Game:
         self.locked.clear()
         self.teased.clear()
         self.answering = None
-        self.floor_open = False
         self.answer_revealed = False
         self.solved = False
         self.buzz_opened_at = None
@@ -500,7 +478,6 @@ class Game:
         player = self.players[self.answering]
         self.answering = None
         self.answer_started_at = None
-        self.floor_open = False
         extra = {"found": found} if found is not None else {}
         if points > 0:
             self.solved = True

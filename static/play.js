@@ -74,9 +74,6 @@ const socket = connect(wsUrl(`/ws/${code}/player`), {
       $("me-name").textContent = message.name;
       $("me-color").style.background = message.color;
     } else if (message.type === "state") {
-      if (message.state.hasHand && message.state.floorOpen && !(state?.hasHand && state?.floorOpen)) {
-        navigator.vibrate?.([80, 40, 80]); // the floor is yours
-      }
       state = message.state;
       deadlineAt = state.deadlineIn != null ? performance.now() / 1000 + state.deadlineIn : null;
       render();
@@ -116,7 +113,7 @@ function onBuzzResult(result) {
   } else if (result === "locked") {
     flash = { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked), until: now + 1400 };
   } else if (result === "accepted") {
-    navigator.vibrate?.(120);
+    navigator.vibrate?.([80, 40, 80]); // your mic is open: answer now
   }
   render();
   if (flash) setTimeout(render, 1450);
@@ -138,7 +135,6 @@ function view() {
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked, seed) };
       return { cls: "armed", big: "BUZZ", small: state.mode === "blindtest" ? "Qui chante ? Quel titre ?" : pick(TEASES.armed, seed), color: me.color };
     case "ANSWERING":
-      if (state.hasHand && !state.floorOpen) return { cls: "ready", big: "C'EST TOI", small: "Attends ton prénom… puis parle !" };
       if (state.hasHand) return { cls: "hand", big: "PARLE !", small: pick(TEASES.hand, seed) };
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: `${state.answeringName} tente sa chance.` };
       return { cls: "late", big: "TROP TARD", small: `${state.answeringName} a la main.` };
@@ -177,7 +173,7 @@ function render() {
 
 function animateTimer() {
   const bar = $("timer-bar");
-  if (state && deadlineAt && !state.paused && !["reading", "floor"].includes(state.deadlineKind)) {
+  if (state && deadlineAt && !state.paused && state.deadlineKind !== "reading") {
     const remaining = Math.max(0, deadlineAt - performance.now() / 1000);
     const total = state.deadlineTotal || 20;
     bar.style.width = `${Math.min(100, (remaining / total) * 100)}%`;

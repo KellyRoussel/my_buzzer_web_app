@@ -101,7 +101,7 @@ extract of a French song, played by the host screen (the agent never sings or hu
 - **Flow**: the agent announces "Chanson numéro 3 !" and calls `start_timer`; the music starts
   when it stops talking, with 25 s to buzz. While the song plays before the answer, the agent's
   voice is muted on the host screen (the song has priority, whatever the LLM decides to say).
-  A buzz pauses the music; after a wrong answer, the music waits for the agent to relaunch the
+  A buzz pauses the music and opens the player's mic at once; after a wrong answer, the music waits for the agent to relaunch the
   others (4 s at most) and resumes. Once the answer is out, the TV shows the album cover and
   the song keeps playing in the background, ducked to 12 % whenever the agent talks (35 %
   otherwise) so the voice stays on top.
@@ -153,7 +153,7 @@ earlier buzz is "too early" (the phone says so) and does not count.
 | Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
 | Countdown | Started by the agent's `start_timer` tool once it has read the question; 20 s to buzz |
 | No buzz | The question closes when the 20 s run out |
-| Answer window | The agent says the player's name; when it stops talking the mic opens for 8 s. Only what is said within those 8 s counts: an answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
+| Answer window | The mic opens as soon as the player buzzes, for 8 s: they answer straight away, without waiting for the host. Only what is said within those 8 s counts: an answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
 ## Design choices
@@ -176,10 +176,10 @@ periodic pings (the socket already answers `ping` with `pong`), then arbitrate o
 
 The host computer's mic hears the whole room, so it is **muted by default** while the agent
 reads and while players think. It opens only in the lobby, at the end, and for the player
-who has the hand. Even then, it waits for the agent: after a buzz the agent only says the
-player's name ("Léa ?"), and the host screen opens the mic (and starts the 8 s answer window)
-once the agent stops talking, so the player never answers over the host. The phone shows
-"C'EST TOI" and then "PARLE !", and a banner on the TV shows "🎙️ À l'écoute de Léa".
+who has the hand, as soon as they buzz: the phone vibrates and shows "PARLE !", the TV shows
+"🎙️ À l'écoute de Léa", and the player answers right away. The agent is told with a silent
+contextual update (`BUZZ`), and the host screen mutes the agent's voice until the player's
+answer has been transcribed, so the host never talks over the answer.
 
 When the 8 s run out, the mic is muted at once, so nothing said afterwards reaches the agent.
 The transcript of the sentence that was cut off arrives a moment later, though, so the host

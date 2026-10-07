@@ -12,10 +12,6 @@ const $ = (id) => document.getElementById(id);
 
 const ACTIVE_PHASES = ["QUESTION_READING", "BUZZ_OPEN", "ANSWERING", "REVEAL"];
 const START_FALLBACK_MS = 8000;
-// After a buzz the agent calls the player ("Kelly ?"); the mic opens once it stops talking.
-const FLOOR_GRACE_MS = 250;     // let the last syllable play out before opening the mic
-const FLOOR_SILENT_MS = 2500;   // the agent did not say anything: open anyway
-const FLOOR_MAX_MS = 4500;      // never wait longer (the server opens it at 5 s regardless)
 // The agent calls start_timer as soon as the LLM emits it, often while the question audio is
 // still playing: the countdown really starts when the agent stops talking.
 const TIMER_DEFER_MAX_MS = 15000;
@@ -30,7 +26,6 @@ let state = null;
 let agentConfigured = false;
 let answerTimeUp = false;
 let questionSpoken = false; // has the agent actually read the current question out loud?
-let floorGate = null; // pending "open the floor" after a buzz: { sentAt, sawSpeech, timers }
 let timerRequest = null; // start_timer called while the agent was still talking
 let answerHeard = []; // transcripts of the player's answer, captured while their mic was open
 let timeUpTimer = null;
@@ -163,12 +158,8 @@ const agent = new QuizAgent({
     renderAgent();
     if (state) syncClip(); // reveal music ducks under the agent's voice
     if (musicHold && previous === "speaking" && mode === "listening") releaseMusic("agent done");
-    // A *new* speaking turn after the BUZZ message (an ongoing one is the old, ducked speech).
-    if (mode === "speaking" && previous !== "speaking" && floorGate) floorGate.sawSpeech = true;
     if (mode === "speaking") clearTimerTimeouts({ keepRequest: true });
     if (previous !== "speaking" || mode !== "listening") return;
-    // The agent stopped talking after calling the player who buzzed: give them the floor.
-    if (floorGate?.sawSpeech) setTimeout(() => openFloor("agent done"), FLOOR_GRACE_MS);
     if (state?.phase !== "QUESTION_READING") return;
     // start_timer was called during the question: the audio has now finished playing.
     if (timerRequest) startTimer("agent finished speaking");
@@ -177,10 +168,12 @@ const agent = new QuizAgent({
   },
   onUserText: (text) => {
     // The mic is only open during the answer window, so this is what the player said in time.
-    if (state?.phase === "ANSWERING" && state.floorOpen) answerHeard.push(text);
+    if (state?.phase === "ANSWERING") {
+      answerHeard.push(text);
+      syncClip(); // the player has answered: the agent may speak again
+    }
   },
   onAgentText: (text) => {
-    if (floorGate) floorGate.sawSpeech = true;
     if (state?.phase === "QUESTION_READING" && !questionSpoken && state.question
         && mentionsQuestion(text, state.question.text)) {
       questionSpoken = true;
@@ -225,7 +218,7 @@ function startTimer(reason) {
 function desiredMicOpen() {
   if (!agent.connected || !state || state.paused) return false;
   if (state.phase === "LOBBY" || state.phase === "FINISHED") return true;
-  return state.phase === "ANSWERING" && state.floorOpen && !answerTimeUp;
+  return state.phase === "ANSWERING" && !answerTimeUp;
 }
 
 const normalize = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -237,27 +230,6 @@ function mentionsQuestion(said, question) {
   const keyWords = normalize(question).split(" ").filter((w) => w.length > 3);
   if (keyWords.length === 0) return true;
   return keyWords.filter((w) => saidWords.has(w)).length / keyWords.length >= 0.6;
-}
-
-function armFloorGate() {
-  clearFloorGate();
-  floorGate = { sentAt: performance.now(), sawSpeech: false, timers: [] };
-  floorGate.timers.push(setTimeout(() => {
-    if (floorGate && !floorGate.sawSpeech && agent.mode !== "speaking") openFloor("agent silent");
-  }, FLOOR_SILENT_MS));
-  floorGate.timers.push(setTimeout(() => openFloor("timeout"), FLOOR_MAX_MS));
-}
-
-function clearFloorGate() {
-  if (floorGate) floorGate.timers.forEach(clearTimeout);
-  floorGate = null;
-}
-
-function openFloor(reason) {
-  if (!floorGate) return;
-  clearFloorGate();
-  log("agent", `floor open (${reason})`);
-  action("open_floor").catch(() => {});
 }
 
 function applyMic() {
@@ -313,26 +285,17 @@ function onEvent(event) {
       if (!agent.connected) action("start_timer").catch(() => {});
       break;
     case "buzz_winner": {
+      // The player's mic opens at once (applyMic below): they answer straight away. The agent is
+      // told silently (a contextual update does not make it talk) and its voice stays muted
+      // until the player's answer has been heard.
       answerTimeUp = false;
-      sfx("buzz");
-      if (!agent.connected) {
-        action("open_floor").catch(() => {});
-        break;
-      }
-      agent.duck();
-      armFloorGate();
-      const speed = event.reactionS != null ? ` en ${String(event.reactionS).replace(".", ",")} s` : "";
-      const text = `BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed}. `
-        + `Arrête-toi immédiatement et dis UNIQUEMENT « ${event.name} ? », rien d'autre : son micro s'ouvre `
-        + `dès que tu te tais. Écoute UNE réponse, puis appelle submit_verdict avec playerId "${event.playerId}"`
-        + (isSongRound() ? " et artist / title (true ou false). La musique est coupée." : ".");
-      if ($("buzz-as-context").checked) agent.context(text);
-      else tellAgent(text);
-      break;
-    }
-    case "floor_open": {
-      clearFloorGate();
       answerHeard = [];
+      sfx("buzz");
+      const speed = event.reactionS != null ? ` en ${String(event.reactionS).replace(".", ",")} s` : "";
+      agent.context(`BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed}. Son micro est déjà `
+        + "ouvert et il ou elle répond tout de suite : ne dis RIEN, n'appelle pas le joueur, écoute UNE réponse, "
+        + `puis appelle submit_verdict avec playerId "${event.playerId}"`
+        + (isSongRound() ? " et artist / title (true ou false). La musique est coupée." : "."));
       break;
     }
     case "buzz_timeout":
@@ -342,6 +305,7 @@ function onEvent(event) {
       break;
     case "answer_time_up":
       answerTimeUp = true; // mutes the mic (applyMic below): what is said from now on does not count
+      syncClip();
       clearTimeout(timeUpTimer);
       timeUpTimer = setTimeout(() => {
         if (state?.phase !== "ANSWERING" || state.answering !== event.playerId) return; // already judged
@@ -515,7 +479,9 @@ function syncClip() {
   }
   const guessing = Boolean(url) && state.phase === "BUZZ_OPEN" && !state.paused && !musicHold;
   const reveal = Boolean(url) && state.phase === "REVEAL" && Boolean(state.answer) && !state.paused;
-  agent.setSilenced(guessing);
+  // The player who buzzed is answering: nothing from the agent until their answer is heard.
+  const playerAnswering = state.phase === "ANSWERING" && !answerTimeUp && answerHeard.length === 0;
+  agent.setSilenced(guessing || playerAnswering);
   if (!url) return;
   audio.volume = !reveal ? 1 : agent.connected && agent.mode === "speaking" ? REVEAL_DUCKED_VOLUME : REVEAL_MUSIC_VOLUME;
   if ((guessing || reveal) && audio.paused) audio.play().catch((err) => log("error", `clip: ${err.message}`));
@@ -539,7 +505,6 @@ function releaseMusic(reason) {
 function onState(next) {
   state = next;
   syncClip();
-  if (state.phase !== "ANSWERING" || state.floorOpen) clearFloorGate();
   if (state.phase !== "QUESTION_READING") clearTimerTimeouts();
   deadlineAt = state.deadlineIn != null ? performance.now() / 1000 + state.deadlineIn : null;
   render();
@@ -606,8 +571,7 @@ function renderStage() {
   $("answering").classList.toggle("hidden", !answering);
   if (answering) {
     const name = playerName(answering);
-    $("answering-text").textContent = !state.floorOpen ? `🔔 ${name} a buzzé !`
-      : agent.connected && !answerTimeUp ? `🎙️ À l'écoute de ${name}` : `${name} a la main`;
+    $("answering-text").textContent = agent.connected && !answerTimeUp ? `🎙️ À l'écoute de ${name}` : `${name} a la main`;
   }
 
   $("answer").classList.toggle("hidden", !state.answer);
@@ -675,7 +639,7 @@ function renderAgent() {
 
 function animateTimer() {
   const bar = $("timer-bar");
-  if (state && deadlineAt && !state.paused && !["reading", "floor"].includes(state.deadlineKind)) {
+  if (state && deadlineAt && !state.paused && state.deadlineKind !== "reading") {
     const remaining = Math.max(0, deadlineAt - performance.now() / 1000);
     bar.style.width = `${Math.min(100, (remaining / (state.deadlineTotal || 20)) * 100)}%`;
   } else {

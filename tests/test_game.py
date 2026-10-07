@@ -247,39 +247,16 @@ def test_no_buzz_times_out_to_reveal():
     assert events[0]["type"] == "buzz_timeout"
 
 
-def test_floor_opens_when_host_reports_it_and_starts_answer_window():
+def test_buzz_opens_the_answer_window_at_once():
     game = started_game()
     game.buzz("p0", 10)
-    assert game.floor_open is False and game.deadline_kind == "floor"
-    assert game.player_state("p0", 10)["floorOpen"] is False
-    events = game.open_floor(11.5)
-    assert events[0]["type"] == "floor_open" and events[0]["name"] == "Joueur 0"
-    assert game.deadline_kind == "answer"
-    assert game.deadline == pytest.approx(11.5 + game.settings.answer_window_s)
-    assert game.open_floor(12) == []  # idempotent
-
-
-def test_floor_opens_by_itself_if_host_never_reports():
-    game = started_game(floor_fallback_s=5)
-    game.buzz("p0", 10)
-    assert game.tick(14.9) == []
-    assert game.tick(15)[0]["type"] == "floor_open"
-
-
-def test_floor_closes_with_the_verdict():
-    game = started_game()
-    game.buzz("p0", 1)
-    game.open_floor(2)
-    game.submit_verdict("p0", False, 3)
-    assert game.floor_open is False
-    game.buzz("p1", 4)
-    assert game.floor_open is False
+    assert game.phase == Phase.ANSWERING and game.deadline_kind == "answer"
+    assert game.deadline == pytest.approx(10 + game.settings.answer_window_s)
 
 
 def test_answer_window_then_hard_timeout_counts_wrong():
     game = started_game()
-    game.buzz("p0", 9)
-    game.open_floor(10)
+    game.buzz("p0", 10)
     events = game.tick(18)
     assert events == [{"type": "answer_time_up", "playerId": "p0", "name": "Joueur 0"}]
     assert game.phase == Phase.ANSWERING  # the agent may still judge
@@ -292,7 +269,7 @@ def test_answer_window_then_hard_timeout_counts_wrong():
 def test_late_verdict_after_hard_timeout_is_rejected():
     game = started_game(players=1)
     game.buzz("p0", 0)
-    for t in (100, 200, 300):  # floor opens, answer window ends, hard timeout
+    for t in (100, 200):  # answer window ends, hard timeout
         game.tick(t)
     with pytest.raises(GameError):
         game.submit_verdict("p0", True, 101)

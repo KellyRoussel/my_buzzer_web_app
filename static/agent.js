@@ -173,12 +173,12 @@ export class QuizAgent {
     this.applyVolume();
   }
 
-  /** Mutes the agent's voice while something more important plays (the blind test song). */
+  /** Mutes the agent's voice while something more important is heard (a song, a player's answer). */
   setSilenced(silenced) {
     if (this.silenced === silenced) return;
     this.silenced = silenced;
     this.applyVolume();
-    this.onLog("agent", silenced ? "voice muted (song playing)" : "voice back");
+    this.onLog("agent", silenced ? "voice muted" : "voice back");
   }
 
   applyVolume() {

@@ -88,8 +88,12 @@ package? Everything that depends on a live voice session is listed at the end un
 1. **The agent talked over the player.** After a buzz, the agent said "Kelly, on t'écoute !"
    while the mic was already open, so the player answered over the agent and the
    transcription was garbled. In a voice app with external turn triggers, *when* to open
-   the mic is the app's job. The fix: the agent only says the name, and the host screen opens
-   the mic on the agent's next speaking → listening transition (with timeouts).
+   the mic is the app's job. First fix: the agent only says the name, and the host screen
+   opens the mic on the agent's next speaking → listening transition. Players found waiting
+   for their name too slow, so the final design keeps the agent out of the loop: the mic
+   opens on the buzz, the agent is told with `sendContextualUpdate` (which does not trigger a
+   reply), and `setVolume({ volume: 0 })` mutes it until the player's transcript arrives, in
+   case it speaks anyway.
 2. **`onModeChange` is not "the agent finished reading".** The agent often comments on the
    previous answer, calls `next_question`, then reads the question, sometimes as separate
    turns with a listening gap in between. Using the first speaking → listening transition
@@ -104,14 +108,12 @@ package? Everything that depends on a live voice session is listed at the end un
 ## To verify live
 
 Measured on real games with the debug panel (`D` on the host screen, which logs WebSocket
-events and tool calls with timestamps). The "BUZZ via contextual update" switch in that
-panel compares both methods.
+events and tool calls with timestamps).
 
 | Question | Result |
 |---|---|
-| `sendUserMessage("BUZZ: …")`: delay from buzz to the agent's first audio | _to measure_ |
-| `sendContextualUpdate("BUZZ: …")`: does the agent react without a user turn? | _to measure_ |
-| Does `sendUserMessage` cut an agent that is still reading the question? | _to measure_ |
+| `sendContextualUpdate("BUZZ: …")` then the player's speech: does the agent use the BUZZ context (right `playerId`) when it judges? | _to measure_ |
+| Does the agent stay silent after a contextual update (the voice is muted anyway until the answer)? | _to measure_ |
 | With the mic muted for 20 s, does the agent re-engage or end the call? | _to measure_ |
 | Are `[sarcastic]` / `[laughs]` tags rendered in French with `eleven_v3_conversational`? | _to measure_ |
 | Does `create_agent.py` work against the live API as written? | _to run_ |
