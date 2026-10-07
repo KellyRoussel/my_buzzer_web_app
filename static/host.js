@@ -161,6 +161,8 @@ const agent = new QuizAgent({
   },
   onMode: (mode, previous) => {
     renderAgent();
+    if (state) syncClip(); // reveal music ducks under the agent's voice
+    if (musicHold && previous === "speaking" && mode === "listening") releaseMusic("agent done");
     // A *new* speaking turn after the BUZZ message (an ongoing one is the old, ducked speech).
     if (mode === "speaking" && previous !== "speaking" && floorGate) floorGate.sawSpeech = true;
     if (mode === "speaking") clearTimerTimeouts({ keepRequest: true });
@@ -353,6 +355,7 @@ function onEvent(event) {
       break;
     case "verdict":
       clearTimeout(timeUpTimer);
+      if (!event.correct && event.next === "BUZZ_OPEN" && isSongRound() && agent.connected) holdMusicForAgent();
       answerTimeUp = false;
       sfx(event.correct ? "correct" : "wrong");
       if (event.by !== "agent") tellAgent(verdictMessage(event));
@@ -494,7 +497,12 @@ function isSongRound() {
 
 // Blind test: the host screen plays the Deezer preview while buzzing is open, pauses it when
 // someone has the hand, and plays it softly under the agent's voice once the answer is out.
+// Before the answer, the song has priority: the agent's voice is muted while it plays.
+const REVEAL_MUSIC_VOLUME = 0.35;   // agent silent
+const REVEAL_DUCKED_VOLUME = 0.12;  // agent talking: its voice stays well above the music
+const MUSIC_HOLD_MAX_MS = 4000;     // after a wrong answer, wait for the agent's relaunch line
 let currentClip = null;
+let musicHold = null;
 
 function syncClip() {
   const audio = $("clip");
@@ -505,12 +513,27 @@ function syncClip() {
     if (url) audio.src = url;
     else audio.removeAttribute("src");
   }
+  const guessing = Boolean(url) && state.phase === "BUZZ_OPEN" && !state.paused && !musicHold;
+  const reveal = Boolean(url) && state.phase === "REVEAL" && Boolean(state.answer) && !state.paused;
+  agent.setSilenced(guessing);
   if (!url) return;
-  const reveal = state.phase === "REVEAL" && Boolean(state.answer);
-  const playing = !state.paused && (state.phase === "BUZZ_OPEN" || reveal);
-  audio.volume = reveal ? 0.25 : 1;
-  if (playing && audio.paused) audio.play().catch((err) => log("error", `clip: ${err.message}`));
-  if (!playing && !audio.paused) audio.pause();
+  audio.volume = !reveal ? 1 : agent.connected && agent.mode === "speaking" ? REVEAL_DUCKED_VOLUME : REVEAL_MUSIC_VOLUME;
+  if ((guessing || reveal) && audio.paused) audio.play().catch((err) => log("error", `clip: ${err.message}`));
+  if (!guessing && !reveal && !audio.paused) audio.pause();
+}
+
+/** After a wrong answer, the agent relaunches the others: resume the song once it is done. */
+function holdMusicForAgent() {
+  releaseMusic();
+  musicHold = setTimeout(() => releaseMusic("timeout"), MUSIC_HOLD_MAX_MS);
+}
+
+function releaseMusic(reason) {
+  if (!musicHold) return;
+  clearTimeout(musicHold);
+  musicHold = null;
+  if (reason) log("agent", `song resumes (${reason})`);
+  if (state) syncClip();
 }
 
 function onState(next) {

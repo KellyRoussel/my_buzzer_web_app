@@ -99,9 +99,12 @@ extract of a French song, played by the host screen (the agent never sings or hu
   up when the room is created (`app/deezer.py`) and skips songs Deezer cannot find. The host
   computer needs internet access during the game.
 - **Flow**: the agent announces "Chanson numéro 3 !" and calls `start_timer`; the music starts
-  when it stops talking, with 25 s to buzz. A buzz pauses the music; a wrong answer resumes it
-  for the others. Once the answer is out, the TV shows the album cover and the song plays
-  softly under the agent's voice.
+  when it stops talking, with 25 s to buzz. While the song plays before the answer, the agent's
+  voice is muted on the host screen (the song has priority, whatever the LLM decides to say).
+  A buzz pauses the music; after a wrong answer, the music waits for the agent to relaunch the
+  others (4 s at most) and resumes. Once the answer is out, the TV shows the album cover and
+  the song keeps playing in the background, ducked to 12 % whenever the agent talks (35 %
+  otherwise) so the voice stays on top.
 - **Scoring**: 1 point for the artist, 1 point for the title, 3 for both. The agent passes
   `artist` and `title` to `submit_verdict`; the host has 🎤 Artiste (`A`) and 🎵 Titre (`S`)
   buttons, and ✅ Correct means both.
