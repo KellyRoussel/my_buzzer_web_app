@@ -21,9 +21,12 @@ def make_game(players: int = 3, total: int = 5, **settings) -> Game:
     return game
 
 
-def started_game(players: int = 3, total: int = 5, now: float = 0.0, **settings) -> Game:
+def started_game(players: int = 3, total: int = 5, now: float = 0.0, timer: bool = True, **settings) -> Game:
+    """A game on question 1. With `timer`, the question has been read and buzzing is open."""
     game = make_game(players, total, **settings)
     game.start_game(now)
+    if timer:
+        game.start_timer(now)
     return game
 
 
@@ -88,25 +91,35 @@ def test_next_question_during_question_returns_current_one():
 
 # ------------------------------------------------------------------ buzzing
 
-def test_buzz_is_allowed_while_reading():
-    game = started_game()
+def test_buzz_before_the_timer_is_too_early():
+    game = started_game(timer=False)
+    assert game.phase == Phase.QUESTION_READING
+    assert game.player_state("p0", 1)["canBuzz"] is False
     result, events = game.buzz("p1", 2.0)
+    assert result == BuzzResult.TOO_EARLY and events == []
+    assert game.phase == Phase.QUESTION_READING
+
+
+def test_reaction_time_counts_from_the_timer_start():
+    game = started_game(timer=False)
+    game.start_timer(10.0)
+    result, events = game.buzz("p1", 12.5)
     assert result == BuzzResult.ACCEPTED
     assert game.phase == Phase.ANSWERING and game.answering == "p1"
-    assert events[0]["type"] == "buzz_winner" and events[0]["reactionS"] == 2.0
+    assert events[0]["type"] == "buzz_winner" and events[0]["reactionS"] == 2.5
 
 
-def test_reading_done_opens_buzz_window():
-    game = started_game()
-    events = game.reading_done(3.0)
+def test_start_timer_opens_buzz_window():
+    game = started_game(timer=False)
+    events = game.start_timer(3.0)
     assert game.phase == Phase.BUZZ_OPEN
     assert game.deadline == pytest.approx(3.0 + game.settings.buzz_window_s)
     assert events[0]["type"] == "buzz_open"
-    assert game.reading_done(4.0) == []  # idempotent
+    assert game.start_timer(4.0) == []  # idempotent
 
 
 def test_reading_fallback_opens_buzz_window():
-    game = started_game(reading_fallback_s=15)
+    game = started_game(timer=False, reading_fallback_s=15)
     assert game.tick(14.9) == []
     events = game.tick(15.0)
     assert game.phase == Phase.BUZZ_OPEN and events[0]["type"] == "buzz_open"
@@ -115,7 +128,7 @@ def test_reading_fallback_opens_buzz_window():
 def test_first_received_buzz_wins_among_twenty_near_simultaneous_buzzes():
     game = make_game(players=20)
     game.start_game(0)
-    game.reading_done(1)
+    game.start_timer(1)
     results = [game.buzz(f"p{i}", 5.0 + i * 1e-6)[0] for i in range(20)]
     assert results[0] == BuzzResult.ACCEPTED
     assert results[1:] == [BuzzResult.TOO_LATE] * 19
@@ -128,6 +141,7 @@ def test_arbitration_is_deterministic_for_any_arrival_order():
         random.Random(seed).shuffle(order)
         game = make_game(players=20)
         game.start_game(0)
+        game.start_timer(0)
         winners = [pid for pid in order if game.buzz(pid, 5.0)[0] == BuzzResult.ACCEPTED]
         assert winners == [order[0]]
 
@@ -152,6 +166,7 @@ def test_buzz_in_lobby_reveal_and_unknown_player():
     game = make_game()
     assert game.buzz("p0", 0)[0] == BuzzResult.NOT_OPEN
     game.start_game(1)
+    game.start_timer(1)
     assert game.buzz("ghost", 2)[0] == BuzzResult.UNKNOWN_PLAYER
     game.buzz("p0", 2)
     game.submit_verdict("p0", True, 3)
@@ -217,14 +232,15 @@ def test_lock_resets_on_next_question():
     game.submit_verdict("p0", False, 2)
     game.next_question(3)
     assert game.locked == set()
+    game.start_timer(3.5)
     assert game.buzz("p0", 4)[0] == BuzzResult.ACCEPTED
 
 
 # ------------------------------------------------------------------ timeouts
 
 def test_no_buzz_times_out_to_reveal():
-    game = started_game()
-    game.reading_done(5)
+    game = started_game(timer=False)
+    game.start_timer(5)
     assert game.tick(24.9) == []
     events = game.tick(25)
     assert game.phase == Phase.REVEAL
@@ -284,7 +300,7 @@ def test_late_verdict_after_hard_timeout_is_rejected():
 
 def test_pause_freezes_and_resume_restores_timer():
     game = started_game()
-    game.reading_done(0)  # deadline at 20
+    game.start_timer(0)  # deadline at 20
     game.pause(5)
     assert game.tick(100) == []
     assert game.buzz("p0", 101)[0] == BuzzResult.NOT_OPEN
@@ -327,6 +343,7 @@ def test_player_state_flags():
 def test_full_game_until_finished_with_ties():
     game = started_game(players=3, total=3)
     for i in range(3):
+        game.start_timer(10 * i + 0.5)
         game.buzz(f"p{i % 2}", 10 * i + 1)
         game.submit_verdict(f"p{i % 2}", True, 10 * i + 2)
         payload, events = game.next_question(10 * i + 3)
@@ -350,6 +367,7 @@ def test_scores_are_announced_every_two_questions():
     game.buzz("p0", 1)
     first, _ = game.submit_verdict("p0", True, 2)
     game.next_question(3)
+    game.start_timer(3.5)
     game.buzz("p0", 4)
     second, _ = game.submit_verdict("p0", True, 5)
     assert first["announceScores"] is False
@@ -384,7 +402,7 @@ def test_forced_next_question_skips_the_current_one():
 
 def test_timeout_reveal_keeps_answer_hidden_until_said():
     game = started_game()
-    game.reading_done(0)
+    game.start_timer(0)
     game.tick(100)
     assert game.phase == Phase.REVEAL
     assert game.public_state(100)["answer"] is None

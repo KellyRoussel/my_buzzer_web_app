@@ -1,4 +1,6 @@
 """WebSocket and HTTP tests for the router."""
+import time
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -94,6 +96,12 @@ def test_full_round_over_websockets(client):
         result = host_action(host, "start_game")
         assert result["ok"] and result["data"]["index"] == 1
         assert result["data"]["acceptedAnswers"]
+
+        # Buzzing before the timer starts is too early.
+        players[2][0].send_json({"type": "buzz"})
+        assert receive_until(players[2][0], lambda m: m["type"] == "buzz_result")["result"] == "too_early"
+        assert host_action(host, "start_timer", request_id="t")["ok"]
+        time.sleep(0.35)  # past Inès's 300 ms anti-spam window
 
         # Everyone buzzes; the first message processed wins, the others are too late.
         for ws, _ in players:

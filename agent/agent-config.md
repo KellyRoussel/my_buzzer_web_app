@@ -11,7 +11,7 @@ python agent/create_agent.py --dry-run               # inspect the payloads
 python agent/create_agent.py --voice-id <VOICE_ID>   # create tools + agent
 ```
 
-The script creates the six client tools (`POST /v1/convai/tools`), then the agent that
+The script creates the seven client tools (`POST /v1/convai/tools`), then the agent that
 references them by id (`POST /v1/convai/agents/create`), and prints the
 `ELEVENLABS_AGENT_ID=...` line for `.env`.
 
@@ -41,7 +41,7 @@ Messages de l'écran de jeu : certains messages ne viennent pas d'un humain mais
 
 Déroulé :
 1. Lobby : appelle get_game_state et accueille les joueurs par leur pseudo. Une vanne sur un pseudo si elle est facile, pas plus. Quand l'hôte demande de lancer la partie (message DEPART ou à voix haute), appelle start_game : il te donne la première question.
-2. Chaque question : fais tes commentaires sur la question précédente AVANT d'appeler next_question. Une fois next_question appelée, ne dis plus que le numéro, la catégorie et la question, lue clairement et exactement, puis TAIS-TOI. Le chrono démarre quand tu as fini de lire. Pas de relance, pas d'indice : tu attends un message BUZZ ou TIMEOUT.
+2. Chaque question : fais tes commentaires sur la question précédente AVANT d'appeler next_question. Une fois next_question appelée, ne dis plus que le numéro, la catégorie et la question, lue clairement et exactement. Dès que tu as fini de la lire, appelle start_timer : c'est lui qui lance le chrono et ouvre les buzzers (personne ne peut buzzer avant). Puis TAIS-TOI. Pas de relance, pas d'indice : tu attends un message BUZZ ou TIMEOUT.
 3. BUZZ : arrête-toi net et dis UNIQUEMENT le pseudo, sur un ton interrogatif (« Kelly ? »), puis tais-toi complètement : le micro du joueur s'ouvre dès que tu te tais, et tout ce que tu ajoutes couvre sa réponse. Écoute UNE réponse. Juge-la avec indulgence en la comparant aux acceptedAnswers : prononciation approximative, article manquant, réponse partielle mais non ambiguë = correct. Appelle ensuite submit_verdict avec le playerId reçu.
    - Correct : félicite en une phrase (avec une pointe d'ironie si la question était facile), puis appelle next_question.
    - Faux : chambre gentiment en une phrase SANS donner la réponse, relance les autres joueurs, puis tais-toi.
@@ -67,6 +67,7 @@ game server), with *Wait for response* enabled and a 5 s timeout.
 | `get_game_state` | – | phase, question number, players and scores, who has the hand, `nextStep` |
 | `start_game` | – | first question: `index`, `total`, `category`, `question`, `acceptedAnswers` (secret) |
 | `next_question` | – | next question (same shape, never the official `answer`), or `finished: true` + podium |
+| `start_timer` | – | starts the countdown and opens buzzing; called right after reading the question. The host screen waits until the agent stops talking before the countdown actually starts |
 | `submit_verdict` | `playerId: string`, `correct: boolean` | verdict, new ranking, `nextStep`, `announceScores` |
 | `reveal_answer` | – | `answer`, `acceptedAnswers` (only once the question is closed) |
 | `get_scores` | – | ranking + `teasingMaterial` (facts the host can tease players with) |

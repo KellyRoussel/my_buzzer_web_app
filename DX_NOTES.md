@@ -88,9 +88,12 @@ package? Everything that depends on a live voice session is listed at the end un
 2. **`onModeChange` is not "the agent finished reading".** The agent often comments on the
    previous answer, calls `next_question`, then reads the question, sometimes as separate
    turns with a listening gap in between. Using the first speaking → listening transition
-   started the buzz countdown before the question was even heard. The fix: watch the
+   started the buzz countdown before the question was even heard. First fix: watch the
    agent's text (`onMessage`, role `agent`) for the question, then wait for the end of that
-   turn. *Suggestion:* expose turn boundaries tied to tool calls (for example "the turn that
+   turn. Final design: the agent starts the countdown itself with a `start_timer` tool. But a
+   client tool runs when the LLM *emits* the call, while the TTS audio of the question is
+   often still playing, so the host defers the real start until `onModeChange` reports
+   `listening`. The transcript matching stays as a fallback when the agent forgets the tool. *Suggestion:* expose turn boundaries tied to tool calls (for example "the turn that
    follows this tool result has finished playing"), so apps don't have to match transcripts.
 
 ## To verify live

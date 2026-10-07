@@ -34,16 +34,32 @@
     },
     {
       "type": "client",
+      "name": "start_timer",
+      "description": "Lance le chrono de la question : à appeler juste après avoir lu la question en entier, et jamais avant. Les joueurs ne peuvent buzzer qu'une fois le chrono lancé.",
+      "expects_response": true,
+      "response_timeout_secs": 5
+    },
+    {
+      "type": "client",
       "name": "submit_verdict",
       "description": "Juge la réponse du joueur qui a la main. Renvoie le nouvel état, les scores et la prochaine étape.",
       "expects_response": true,
       "response_timeout_secs": 5,
       "parameters": {
         "type": "object",
-        "required": ["playerId", "correct"],
+        "required": [
+          "playerId",
+          "correct"
+        ],
         "properties": {
-          "playerId": {"type": "string", "description": "L'id du joueur qui a buzzé, tel que donné dans le message BUZZ."},
-          "correct": {"type": "boolean", "description": "true si la réponse est correcte, false sinon."}
+          "playerId": {
+            "type": "string",
+            "description": "L'id du joueur qui a buzzé, tel que donné dans le message BUZZ."
+          },
+          "correct": {
+            "type": "boolean",
+            "description": "true si la réponse est correcte, false sinon."
+          }
         }
       }
     },

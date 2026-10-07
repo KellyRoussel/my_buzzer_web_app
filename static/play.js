@@ -109,7 +109,9 @@ document.addEventListener("keydown", (event) => {
 
 function onBuzzResult(result) {
   const now = performance.now();
-  if (result === "too_late") {
+  if (result === "too_early") {
+    flash = { cls: "late", big: "TROP TÔT", small: "Attends la fin de la question, petit malin 🙃", until: now + 1400 };
+  } else if (result === "too_late") {
     flash = { cls: "late", big: "TROP TARD", small: pick(TEASES.late), until: now + 1400 };
   } else if (result === "locked") {
     flash = { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked), until: now + 1400 };
@@ -130,6 +132,7 @@ function view() {
     case "LOBBY":
       return { cls: "waiting", big: "PRÊT ?", small: `${me.playerCount} joueur·s dans la salle. ${pick(TEASES.lobby, me.id)}` };
     case "QUESTION_READING":
+      return { cls: "waiting", big: "ÉCOUTE…", small: "Le buzzer s'active quand le chrono démarre." };
     case "BUZZ_OPEN":
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked, seed) };
       return { cls: "armed", big: "BUZZ", small: pick(TEASES.armed, seed), color: me.color };

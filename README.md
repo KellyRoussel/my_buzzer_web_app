@@ -112,9 +112,9 @@ flowchart LR
 - **The server owns the game.** Phases, buzz order, locks and scores live in
   `app/game.py`, a pure state machine (no I/O, time passed in), which makes it
   easy to test.
-- **The agent never holds state.** It reads and changes the game through six client tools
-  (`get_game_state`, `start_game`, `next_question`, `submit_verdict`, `reveal_answer`,
-  `get_scores`). They run in the host browser, which relays them to the server over its
+- **The agent never holds state.** It reads and changes the game through seven client tools
+  (`get_game_state`, `start_game`, `next_question`, `start_timer`, `submit_verdict`,
+  `reveal_answer`, `get_scores`). They run in the host browser, which relays them to the server over its
   WebSocket. Every result carries a `nextStep` hint, and errors are plain sentences the agent
   can recover from ("Ce n'est pas ce joueur qui a la main. C'est Léa.").
 - **Phones are thin.** A nickname, a giant button, a colour per player, haptics and a few
@@ -122,13 +122,15 @@ flowchart LR
   reconnection.
 
 Phases: `LOBBY → QUESTION_READING → BUZZ_OPEN → ANSWERING → REVEAL → … → FINISHED`.
-Buzzing is already allowed while the question is being read, as in TV quizzes.
+Buzzing opens only when the countdown starts, once the question has been read out loud: an
+earlier buzz is "too early" (the phone says so) and does not count.
 
 | Rule | Value |
 |---|---|
 | Right answer | +1, the question closes |
 | Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
-| No buzz | 20 s after the agent has read the question out loud (fallback: 25 s after the question opens) |
+| Countdown | Started by the agent's `start_timer` tool once it has read the question; 20 s to buzz |
+| No buzz | The question closes when the 20 s run out |
 | Answer window | The agent says the player's name; when it stops talking the mic opens for 8 s, then the agent must judge. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
@@ -157,19 +159,26 @@ player's name ("Léa ?"), and the host screen opens the mic (and starts the 8 s 
 once the agent stops talking, so the player never answers over the host. The phone shows
 "C'EST TOI" and then "PARLE !", and a banner on the TV shows "🎙️ À l'écoute de Léa".
 
-The buzz countdown follows the same idea. The agent often comments on the previous answer
-before reading the next question, so "the agent stopped talking" is not enough: the host
-screen waits until the agent's transcript contains the question, shows the question on the
-TV at that moment, and starts the 20 s countdown when the agent finishes that turn.
+### Starting the countdown
 
- Because the mic is muted, the
-app drives the agent with text messages: `BUZZ`, `TIMEOUT`, `FIN_DU_TEMPS`… (see
+The agent often comments on the previous answer before reading the next question, so the
+countdown cannot start when the question is drawn. The agent starts it itself with the
+`start_timer` tool, right after reading the question; buzzing opens at that moment. The LLM
+emits the tool call while the question's audio is often still playing, so the host screen
+defers the real start until the agent stops talking. Two safety nets: if the agent's
+transcript contained the question but `start_timer` never came, the countdown starts after
+4 s of silence; and the server starts it anyway 30 s after the question was drawn. The
+question appears on the TV when the agent reads it, not before.
+
+### Driving the agent
+
+Because the mic is muted most of the time, the app drives the agent with text messages: `BUZZ`, `TIMEOUT`, `FIN_DU_TEMPS`… (see
 [`agent/agent-config.md`](agent/agent-config.md)). If someone buzzes while the agent is still
 talking, the host screen ducks the agent's volume until its next turn starts.
 
 The game is robust to the agent being wrong or slow: the server enforces every deadline, and
-the host has fallback buttons (✅ Correct, ❌ Faux, 💡 Réponse, ⏭️ Question suivante,
-⏸️ Pause) with keyboard shortcuts `C`, `F`, `R`, `N`, `P`. When the host overrides, the
+the host has fallback buttons (✅ Correct, ❌ Faux, ⏱️ Chrono, 💡 Réponse, ⏭️ Question suivante,
+⏸️ Pause) with keyboard shortcuts `C`, `F`, `T`, `R`, `N`, `P`. When the host overrides, the
 agent is told and reacts.
 
 ### Judging answers: option A (implemented) and option B

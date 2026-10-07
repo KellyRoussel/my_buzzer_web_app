@@ -16,12 +16,19 @@ const START_FALLBACK_MS = 8000;
 const FLOOR_GRACE_MS = 250;     // let the last syllable play out before opening the mic
 const FLOOR_SILENT_MS = 2500;   // the agent did not say anything: open anyway
 const FLOOR_MAX_MS = 4500;      // never wait longer (the server opens it at 5 s regardless)
+// The agent calls start_timer as soon as the LLM emits it, often while the question audio is
+// still playing: the countdown really starts when the agent stops talking.
+const TIMER_DEFER_MAX_MS = 15000;
+// The agent read the question but forgot start_timer: start it after this much silence.
+const TIMER_FALLBACK_MS = 4000;
 
 let state = null;
 let agentConfigured = false;
 let answerTimeUp = false;
 let questionSpoken = false; // has the agent actually read the current question out loud?
 let floorGate = null; // pending "open the floor" after a buzz: { sentAt, sawSpeech, timers }
+let timerRequest = null; // start_timer called while the agent was still talking
+let timerFallback = null;
 let deadlineAt = null;
 let renderedQuestion = null;
 let celebrated = false;
@@ -137,6 +144,7 @@ const agent = new QuizAgent({
     start_game: () => action("start_game"),
     next_question: () => action("next_question"),
     submit_verdict: ({ playerId, correct }) => action("submit_verdict", { playerId, correct, by: "agent" }),
+    start_timer: () => requestTimerFromAgent(),
     reveal_answer: () => action("reveal_answer"),
     get_scores: () => action("get_scores"),
   },
@@ -149,12 +157,15 @@ const agent = new QuizAgent({
     renderAgent();
     // A *new* speaking turn after the BUZZ message (an ongoing one is the old, ducked speech).
     if (mode === "speaking" && previous !== "speaking" && floorGate) floorGate.sawSpeech = true;
+    if (mode === "speaking") clearTimerTimeouts({ keepRequest: true });
     if (previous !== "speaking" || mode !== "listening") return;
     // The agent stopped talking after calling the player who buzzed: give them the floor.
     if (floorGate?.sawSpeech) setTimeout(() => openFloor("agent done"), FLOOR_GRACE_MS);
-    // The agent stopped talking *after* reading the question (not after commenting on the
-    // previous answer): start the buzz countdown.
-    if (state?.phase === "QUESTION_READING" && questionSpoken) action("reading_done").catch(() => {});
+    if (state?.phase !== "QUESTION_READING") return;
+    // start_timer was called during the question: the audio has now finished playing.
+    if (timerRequest) startTimer("agent finished speaking");
+    // The agent read the question but did not call start_timer: start it after a short silence.
+    else if (questionSpoken) timerFallback = setTimeout(() => startTimer("fallback, no start_timer"), TIMER_FALLBACK_MS);
   },
   onAgentText: (text) => {
     if (floorGate) floorGate.sawSpeech = true;
@@ -167,6 +178,36 @@ const agent = new QuizAgent({
   },
   onLog: log,
 });
+
+/** start_timer tool: start the countdown once the agent has finished reading the question. */
+function requestTimerFromAgent() {
+  if (state?.phase === "BUZZ_OPEN") return { ok: true, note: "Le chrono tourne déjà. Tais-toi et attends BUZZ ou TIMEOUT." };
+  if (state?.phase !== "QUESTION_READING") throw new Error("Aucune question n'attend de chrono en ce moment.");
+  if (agent.mode === "speaking") {
+    clearTimerTimeouts();
+    timerRequest = setTimeout(() => startTimer("agent still talking after 15 s"), TIMER_DEFER_MAX_MS);
+    log("agent", "start_timer: deferred until the agent stops talking");
+  } else {
+    startTimer("agent");
+  }
+  return { ok: true, nextStep: "Le chrono démarre dès que tu te tais. Tais-toi et attends un message BUZZ ou TIMEOUT." };
+}
+
+function clearTimerTimeouts({ keepRequest = false } = {}) {
+  clearTimeout(timerFallback);
+  timerFallback = null;
+  if (!keepRequest) {
+    clearTimeout(timerRequest);
+    timerRequest = null;
+  }
+}
+
+function startTimer(reason) {
+  clearTimerTimeouts();
+  if (state?.phase !== "QUESTION_READING") return;
+  log("agent", `timer started (${reason})`);
+  action("start_timer").catch(() => {});
+}
 
 /** The room microphone is open only when someone is expected to talk to the agent. */
 function desiredMicOpen() {
@@ -254,9 +295,10 @@ function onEvent(event) {
     case "question":
       answerTimeUp = false;
       questionSpoken = !agent.connected;
+      clearTimerTimeouts();
       sfx("question");
       // Without the agent, the host reads the question aloud right away: start the countdown.
-      if (!agent.connected) action("reading_done").catch(() => {});
+      if (!agent.connected) action("start_timer").catch(() => {});
       break;
     case "buzz_winner": {
       answerTimeUp = false;
@@ -324,6 +366,10 @@ async function hostControl(name) {
       case "wrong":
         if (state?.phase !== "ANSWERING") throw new Error("Personne n'a la main.");
         await action("submit_verdict", { playerId: state.answering, correct: name === "correct", by: "host" });
+        break;
+      case "timer":
+        if (state?.phase !== "QUESTION_READING") throw new Error("Le chrono tourne déjà, ou aucune question n'est en cours.");
+        startTimer("host");
         break;
       case "reveal": {
         const result = await action("reveal_answer");
@@ -396,7 +442,7 @@ for (const button of document.querySelectorAll("[data-action]")) {
   button.addEventListener("click", () => hostControl(button.dataset.action));
 }
 
-const SHORTCUTS = { c: "correct", f: "wrong", r: "reveal", n: "next", p: "pause" };
+const SHORTCUTS = { c: "correct", f: "wrong", r: "reveal", n: "next", p: "pause", t: "timer" };
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey || event.target.matches("input, select, textarea")) return;
   const key = event.key.toLowerCase();
@@ -409,6 +455,7 @@ document.addEventListener("keydown", (event) => {
 function onState(next) {
   state = next;
   if (state.phase !== "ANSWERING" || state.floorOpen) clearFloorGate();
+  if (state.phase !== "QUESTION_READING") clearTimerTimeouts();
   deadlineAt = state.deadlineIn != null ? performance.now() / 1000 + state.deadlineIn : null;
   render();
   applyMic();

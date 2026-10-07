@@ -4,7 +4,7 @@ Usage (from the repository root):
     python agent/create_agent.py --voice-id <VOICE_ID>
     python agent/create_agent.py --dry-run      # print the payloads only
 
-Reads ELEVENLABS_API_KEY from the environment (or .env). Creates the six client
+Reads ELEVENLABS_API_KEY from the environment (or .env). Creates the seven client
 tools first (POST /v1/convai/tools), then the agent referencing them by id
 (POST /v1/convai/agents/create), and prints the ELEVENLABS_AGENT_ID line to
 paste into .env.

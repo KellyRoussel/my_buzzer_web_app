@@ -9,6 +9,9 @@ Phases:
     LOBBY -> QUESTION_READING -> BUZZ_OPEN -> ANSWERING -> REVEAL
           -> (QUESTION_READING | FINISHED)
 
+Buzzing opens only when the timer starts (start_timer), once the question has
+been read out loud: a buzz during QUESTION_READING is "too early".
+
 Messages returned to the agent (errors, hints) are in French because they are
 read by a French-speaking voice agent.
 """
@@ -37,11 +40,12 @@ class Phase(str, Enum):
     FINISHED = "FINISHED"
 
 
-BUZZABLE_PHASES = (Phase.QUESTION_READING, Phase.BUZZ_OPEN)
+BUZZABLE_PHASES = (Phase.BUZZ_OPEN,)
 
 
 class BuzzResult(str, Enum):
     ACCEPTED = "accepted"
+    TOO_EARLY = "too_early"
     TOO_LATE = "too_late"
     LOCKED = "locked"
     NOT_OPEN = "not_open"
@@ -57,9 +61,9 @@ class GameError(Exception):
 @dataclass
 class GameSettings:
     total_questions: int = 5
-    # If the host never reports that the agent finished reading, open the buzz window anyway.
+    # If the timer is never started (agent forgot start_timer), start it anyway.
     # Generous on purpose: the agent often comments on the previous answer before reading.
-    reading_fallback_s: float = 25.0
+    reading_fallback_s: float = 30.0
     buzz_window_s: float = 20.0
     # Shorter window after a wrong answer, to keep the pace up.
     rebuzz_window_s: float = 10.0
@@ -191,11 +195,12 @@ class Game:
         events += self._open_question(now)
         return self._question_payload(), events
 
-    def reading_done(self, now: float) -> list[Event]:
-        """The agent finished reading the question: start the buzz countdown."""
+    def start_timer(self, now: float) -> list[Event]:
+        """The question has been read out loud: open buzzing and start the countdown."""
         if self.phase != Phase.QUESTION_READING:
             return []
         self.phase = Phase.BUZZ_OPEN
+        self.buzz_opened_at = now
         self._set_deadline("buzz", now, self.settings.buzz_window_s)
         return [{"type": "buzz_open", "windowS": self.settings.buzz_window_s}]
 
@@ -301,7 +306,7 @@ class Game:
         kind = self.deadline_kind
         self.deadline = self.deadline_kind = None
         if kind == "reading":
-            return self.reading_done(now)
+            return self.start_timer(now)
         if kind == "floor":
             return self.open_floor(now)
         if kind == "buzz":
@@ -419,6 +424,8 @@ class Game:
     def _classify_buzz(self, player_id: str) -> BuzzResult:
         if self.paused:
             return BuzzResult.NOT_OPEN
+        if self.phase == Phase.QUESTION_READING:
+            return BuzzResult.TOO_EARLY
         if self.phase in BUZZABLE_PHASES:
             return BuzzResult.LOCKED if player_id in self.locked else BuzzResult.ACCEPTED
         if self.phase == Phase.ANSWERING:
@@ -436,7 +443,7 @@ class Game:
         self.floor_open = False
         self.answer_revealed = False
         self.solved = False
-        self.buzz_opened_at = now
+        self.buzz_opened_at = None
         for player in self.players.values():
             player.spam_this_question = 0
         self._set_deadline("reading", now, self.settings.reading_fallback_s)
@@ -500,7 +507,7 @@ class Game:
             # The system prompt forbids revealing them before a verdict.
             "acceptedAnswers": question.acceptedAnswers,
             "secret": "Ne révèle JAMAIS ces réponses avant un verdict ou reveal_answer.",
-            "nextStep": "Lis la question, puis tais-toi et attends un message BUZZ ou TIMEOUT.",
+            "nextStep": "Lis la question, appelle start_timer, puis tais-toi et attends un message BUZZ ou TIMEOUT.",
         }
         if note:
             payload["note"] = note
@@ -542,8 +549,10 @@ class Game:
     def _next_step_hint(self) -> str:
         if self.phase == Phase.LOBBY:
             return "Accueille les joueurs. Quand l'hôte te demande de lancer, appelle start_game."
+        if self.phase == Phase.QUESTION_READING:
+            return "Lis la question si ce n'est pas fait, puis appelle start_timer et tais-toi."
         if self.phase in BUZZABLE_PHASES:
-            return "Question en cours : tais-toi et attends un message BUZZ ou TIMEOUT."
+            return "Chrono lancé : tais-toi et attends un message BUZZ ou TIMEOUT."
         if self.phase == Phase.ANSWERING:
             name = self.players[self.answering].name
             return f"{name} a la main : écoute UNE réponse, puis appelle submit_verdict."
