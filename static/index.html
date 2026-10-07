@@ -28,7 +28,13 @@
   <section class="panel">
     <h2>Créer une partie</h2>
     <form id="create-form">
-      <label>Nombre de questions
+      <label>Jeu
+        <select name="mode">
+          <option value="quiz" selected>Quiz de culture générale</option>
+          <option value="blindtest">Blind test : chansons françaises 🎵</option>
+        </select>
+      </label>
+      <label>Nombre de manches
         <select name="total">
           <option value="5" selected>5 — format apéro</option>
           <option value="10">10 — soirée sérieuse</option>
@@ -58,12 +64,14 @@
     event.preventDefault();
     const error = document.getElementById("create-error");
     error.textContent = "";
-    const total = Number(new FormData(event.target).get("total"));
+    const form = new FormData(event.target);
+    const total = Number(form.get("total"));
+    const mode = form.get("mode");
     try {
       const response = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ total_questions: total }),
+        body: JSON.stringify({ total_questions: total, mode }),
       });
       if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
       const room = await response.json();

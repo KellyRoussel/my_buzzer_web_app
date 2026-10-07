@@ -28,28 +28,27 @@
     {
       "type": "client",
       "name": "next_question",
-      "description": "Passe à la question suivante et la renvoie (index, total, catégorie, question, réponses acceptées secrètes). Après la dernière question, renvoie finished: true et le podium.",
+      "description": "Passe à la question suivante et la renvoie (en quiz : catégorie, question, réponses acceptées secrètes ; en blind test : kind « chanson » avec l'artiste et le titre secrets). Après la dernière, renvoie finished: true et le podium.",
       "expects_response": true,
       "response_timeout_secs": 5
     },
     {
       "type": "client",
       "name": "start_timer",
-      "description": "Lance le chrono de la question : à appeler juste après avoir lu la question en entier, et jamais avant. Les joueurs ne peuvent buzzer qu'une fois le chrono lancé.",
+      "description": "Lance le chrono de la question (et, en blind test, la musique) : à appeler juste après avoir lu la question ou annoncé la chanson, et jamais avant. Les joueurs ne peuvent buzzer qu'une fois le chrono lancé.",
       "expects_response": true,
       "response_timeout_secs": 5
     },
     {
       "type": "client",
       "name": "submit_verdict",
-      "description": "Juge la réponse du joueur qui a la main. Renvoie le nouvel état, les scores et la prochaine étape.",
+      "description": "Juge la réponse du joueur qui a la main. Quiz : passe correct. Blind test : passe artist et title (1 point pour l'artiste, 1 pour le titre, 3 pour les deux). Renvoie le nouvel état, les scores et la prochaine étape.",
       "expects_response": true,
       "response_timeout_secs": 5,
       "parameters": {
         "type": "object",
         "required": [
-          "playerId",
-          "correct"
+          "playerId"
         ],
         "properties": {
           "playerId": {
@@ -58,7 +57,15 @@
           },
           "correct": {
             "type": "boolean",
-            "description": "true si la réponse est correcte, false sinon."
+            "description": "Quiz : true si la réponse est correcte, false sinon. En blind test, correct=false veut dire « rien de bon »."
+          },
+          "artist": {
+            "type": "boolean",
+            "description": "Blind test : true si le joueur a trouvé l'artiste."
+          },
+          "title": {
+            "type": "boolean",
+            "description": "Blind test : true si le joueur a trouvé le titre."
           }
         }
       }
@@ -66,7 +73,7 @@
     {
       "type": "client",
       "name": "reveal_answer",
-      "description": "Renvoie la réponse officielle de la question en cours, une fois la question close (bonne réponse, timeout ou plus personne pour répondre).",
+      "description": "Renvoie la réponse officielle (en blind test : artiste et titre) de la question en cours, une fois la question close (bonne réponse, timeout ou plus personne pour répondre).",
       "expects_response": true,
       "response_timeout_secs": 5
     },

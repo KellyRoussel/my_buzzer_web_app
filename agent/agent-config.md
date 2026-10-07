@@ -49,6 +49,8 @@ Déroulé :
 5. Quand un résultat d'outil contient announceScores: true, annonce le classement en une ou deux phrases avant la question suivante, avec une pique pour le dernier (teasingMaterial t'aide).
 6. Quand next_question renvoie finished: true, annonce le podium avec enthousiasme : le gagnant d'abord, puis une dernière vanne affectueuse pour le dernier.
 
+Blind test : quand start_game renvoie mode « blindtest », chaque manche est un extrait de chanson française, joué par l'écran et pas par toi. Annonce « Chanson numéro X ! » en une phrase (une vanne si tu veux, mais aucun indice), appelle start_timer (la musique démarre dès que tu te tais), puis tais-toi pendant toute la musique. Au BUZZ, la musique s'arrête : même déroulé que pour une question. Le joueur peut donner l'artiste, le titre ou les deux : appelle submit_verdict avec artist et title (true ou false) au lieu de correct. 1 point pour l'artiste, 1 pour le titre, 3 pour les deux. Sois indulgent sur l'orthographe et les petits mots du titre. Si rien n'est bon, artist et title valent false : le joueur est bloqué et la musique reprend pour les autres. Si un seul des deux est trouvé, donne l'autre en annonçant la réponse. Ne fredonne jamais, ne chante jamais les paroles, ne donne ni l'année ni l'artiste avant le verdict.
+
 Règles :
 - Ne révèle JAMAIS la réponse, ni un indice, avant un verdict ou reveal_answer.
 - Ne parle jamais pendant qu'un joueur répond : pas de « on t'écoute », pas de commentaire, pas de relance.
@@ -66,10 +68,10 @@ game server), with *Wait for response* enabled and a 5 s timeout.
 |---|---|---|
 | `get_game_state` | – | phase, question number, players and scores, who has the hand, `nextStep` |
 | `start_game` | – | first question: `index`, `total`, `category`, `question`, `acceptedAnswers` (secret) |
-| `next_question` | – | next question (same shape, never the official `answer`), or `finished: true` + podium |
-| `start_timer` | – | starts the countdown and opens buzzing; called right after reading the question. The host screen waits until the agent stops talking before the countdown actually starts |
-| `submit_verdict` | `playerId: string`, `correct: boolean` | verdict, new ranking, `nextStep`, `announceScores` |
-| `reveal_answer` | – | `answer`, `acceptedAnswers` (only once the question is closed) |
+| `next_question` | – | next question (same shape, never the official `answer`; in blind test `kind: "chanson"` with the secret `artist` and `title`), or `finished: true` + podium |
+| `start_timer` | – | starts the countdown (and, in blind test, the music) and opens buzzing; called right after reading the question. The host screen waits until the agent stops talking before the countdown actually starts |
+| `submit_verdict` | `playerId: string`, then `correct: boolean` (quiz) or `artist`, `title: boolean` (blind test: 1 + 1, or 3 for both) | verdict, points, new ranking, `nextStep`, `announceScores` |
+| `reveal_answer` | – | `answer`, `acceptedAnswers` (blind test: `artist`, `title`), only once the question is closed |
 | `get_scores` | – | ranking + `teasingMaterial` (facts the host can tease players with) |
 
 Every tool result carries a `nextStep` hint in French. Tool errors (wrong player, wrong

@@ -66,7 +66,7 @@ function fatal(html) {
 const log = (() => {
   const list = $("log");
   const showSecrets = $("show-secrets");
-  const secretKeys = new Set(["acceptedAnswers", "answer"]);
+  const secretKeys = new Set(["acceptedAnswers", "answer", "artist", "title", "acceptedArtists", "acceptedTitles"]);
   return (kind, text, data) => {
     const item = document.createElement("li");
     const time = new Date().toISOString().slice(11, 23);
@@ -322,7 +322,8 @@ function onEvent(event) {
       const speed = event.reactionS != null ? ` en ${String(event.reactionS).replace(".", ",")} s` : "";
       const text = `BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed}. `
         + `Arrête-toi immédiatement et dis UNIQUEMENT « ${event.name} ? », rien d'autre : son micro s'ouvre `
-        + `dès que tu te tais. Écoute UNE réponse, puis appelle submit_verdict avec playerId "${event.playerId}".`;
+        + `dès que tu te tais. Écoute UNE réponse, puis appelle submit_verdict avec playerId "${event.playerId}"`
+        + (isSongRound() ? " et artist / title (true ou false). La musique est coupée." : ".");
       if ($("buzz-as-context").checked) agent.context(text);
       else tellAgent(text);
       break;
@@ -347,7 +348,7 @@ function onEvent(event) {
           + (heard ? `Voici tout ce qu'il ou elle a dit dans le temps imparti : « ${heard} ». `
               + "Juge la réponse donnée là-dedans, même si elle est suivie de blabla, et ignore tout ce qui viendrait après. "
             : "Aucune réponse n'a été captée dans le temps imparti : c'est faux. ")
-          + `Appelle submit_verdict (playerId "${event.playerId}").`);
+          + `Appelle submit_verdict (playerId "${event.playerId}"${isSongRound() ? ", avec artist et title" : ""}).`);
       }, ANSWER_TRANSCRIPT_GRACE_MS);
       break;
     case "verdict":
@@ -368,8 +369,11 @@ function onEvent(event) {
 }
 
 function verdictMessage(event) {
+  const what = !event.found ? "la réponse"
+    : event.found.artist && event.found.title ? "l'artiste et le titre"
+    : event.found.artist ? "l'artiste (mais pas le titre)" : "le titre (mais pas l'artiste)";
   const who = event.by === "timeout" ? `TROP_LENT: ${event.name} n'a pas répondu à temps, c'est compté faux.`
-    : event.correct ? `VERDICT_HOTE: l'hôte a validé la réponse de ${event.name}, +1 point.`
+    : event.correct ? `VERDICT_HOTE: l'hôte a validé ${what} pour ${event.name}, +${event.points} point${event.points > 1 ? "s" : ""}.`
     : `VERDICT_HOTE: l'hôte a refusé la réponse de ${event.name}.`;
   if (event.correct) return `${who} Réagis en une phrase, puis appelle next_question.`;
   if (event.next === "BUZZ_OPEN") return `${who} Chambre-le ou la en une phrase, relance ${event.remaining.join(", ")}, puis tais-toi.`;
@@ -384,9 +388,17 @@ async function hostControl(name) {
     switch (name) {
       case "correct":
       case "wrong":
+      case "artist":
+      case "title": {
         if (state?.phase !== "ANSWERING") throw new Error("Personne n'a la main.");
-        await action("submit_verdict", { playerId: state.answering, correct: name === "correct", by: "host" });
+        if (!isSongRound() && (name === "artist" || name === "title")) throw new Error("Pas de chanson en cours.");
+        const params = { playerId: state.answering, by: "host" };
+        if (!isSongRound()) params.correct = name === "correct";
+        else if (name === "wrong") params.correct = false;
+        else Object.assign(params, { artist: name !== "title", title: name !== "artist" }); // "correct" = both
+        await action("submit_verdict", params);
         break;
+      }
       case "timer":
         if (state?.phase !== "QUESTION_READING") throw new Error("Le chrono tourne déjà, ou aucune question n'est en cours.");
         startTimer("host");
@@ -420,9 +432,13 @@ async function hostControl(name) {
 function announceQuestion(result, why) {
   if (result.finished) {
     tellAgent(`FIN: ${why}, et c'était la dernière. Gagnant·e·s : ${result.winners.join(", ")}. Annonce le podium avec panache.`);
+  } else if (result.kind === "chanson") {
+    tellAgent(`QUESTION_HOTE: ${why} (chanson ${result.index}/${result.total}). Annonce-la en une phrase, `
+      + `appelle start_timer, puis tais-toi pendant la musique. Réponse secrète : ${result.artist} — ${result.title}.`);
   } else {
     tellAgent(`QUESTION_HOTE: ${why} (${result.index}/${result.total}, ${result.category}). `
-      + `Lis exactement : « ${result.question} » Réponses acceptées, secrètes : ${result.acceptedAnswers.join(", ")}. Puis tais-toi.`);
+      + `Lis exactement : « ${result.question} » Réponses acceptées, secrètes : ${result.acceptedAnswers.join(", ")}. `
+      + "Puis appelle start_timer et tais-toi.");
   }
 }
 
@@ -462,7 +478,7 @@ for (const button of document.querySelectorAll("[data-action]")) {
   button.addEventListener("click", () => hostControl(button.dataset.action));
 }
 
-const SHORTCUTS = { c: "correct", f: "wrong", r: "reveal", n: "next", p: "pause", t: "timer" };
+const SHORTCUTS = { c: "correct", f: "wrong", a: "artist", s: "title", r: "reveal", n: "next", p: "pause", t: "timer" };
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey || event.target.matches("input, select, textarea")) return;
   const key = event.key.toLowerCase();
@@ -472,8 +488,34 @@ document.addEventListener("keydown", (event) => {
 
 // ------------------------------------------------------------------ render
 
+function isSongRound() {
+  return state?.question?.kind === "song";
+}
+
+// Blind test: the host screen plays the Deezer preview while buzzing is open, pauses it when
+// someone has the hand, and plays it softly under the agent's voice once the answer is out.
+let currentClip = null;
+
+function syncClip() {
+  const audio = $("clip");
+  const url = isSongRound() ? state.question.clipUrl : null;
+  if (url !== currentClip) {
+    currentClip = url;
+    audio.pause();
+    if (url) audio.src = url;
+    else audio.removeAttribute("src");
+  }
+  if (!url) return;
+  const reveal = state.phase === "REVEAL" && Boolean(state.answer);
+  const playing = !state.paused && (state.phase === "BUZZ_OPEN" || reveal);
+  audio.volume = reveal ? 0.25 : 1;
+  if (playing && audio.paused) audio.play().catch((err) => log("error", `clip: ${err.message}`));
+  if (!playing && !audio.paused) audio.pause();
+}
+
 function onState(next) {
   state = next;
+  syncClip();
   if (state.phase !== "ANSWERING" || state.floorOpen) clearFloorGate();
   if (state.phase !== "QUESTION_READING") clearTimerTimeouts();
   deadlineAt = state.deadlineIn != null ? performance.now() / 1000 + state.deadlineIn : null;
@@ -483,7 +525,8 @@ function onState(next) {
 
 function render() {
   const phase = state.phase;
-  $("room-pill").textContent = `Salle ${code}`;
+  $("room-pill").textContent = `Salle ${code}${state.mode === "blindtest" ? " · 🎵 Blind test" : ""}`;
+  for (const button of document.querySelectorAll(".song-only")) button.classList.toggle("hidden", state.mode !== "blindtest");
   $("lobby").classList.toggle("hidden", phase !== "LOBBY");
   $("stage").classList.toggle("hidden", !ACTIVE_PHASES.includes(phase));
   $("finished").classList.toggle("hidden", phase !== "FINISHED");
@@ -522,7 +565,8 @@ function renderLobby() {
 function renderStage() {
   const question = state.question;
   // With the agent, the question appears on screen as it is read out, not before.
-  const visible = !agent.connected || questionSpoken || state.phase !== "QUESTION_READING";
+  const visible = !agent.connected || questionSpoken || state.phase !== "QUESTION_READING"
+    || question?.kind === "song"; // nothing to give away: the song is the question
   const key = `${state.questionNumber}-${visible}`;
   if (question && renderedQuestion !== key) {
     renderedQuestion = key;
@@ -545,6 +589,8 @@ function renderStage() {
 
   $("answer").classList.toggle("hidden", !state.answer);
   $("answer-text").textContent = state.answer ?? "";
+  $("cover").classList.toggle("hidden", !state.coverUrl);
+  if (state.coverUrl && $("cover").getAttribute("src") !== state.coverUrl) $("cover").src = state.coverUrl;
 
   const colors = Object.fromEntries(state.players.map((p) => [p.id, p]));
   $("scores").innerHTML = state.ranking.map((row) => {

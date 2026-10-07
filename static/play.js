@@ -132,10 +132,11 @@ function view() {
     case "LOBBY":
       return { cls: "waiting", big: "PRÊT ?", small: `${me.playerCount} joueur·s dans la salle. ${pick(TEASES.lobby, me.id)}` };
     case "QUESTION_READING":
-      return { cls: "waiting", big: "ÉCOUTE…", small: "Le buzzer s'active quand le chrono démarre." };
+      return { cls: "waiting", big: "ÉCOUTE…", small: state.mode === "blindtest"
+        ? "Le buzzer s'active quand la musique démarre." : "Le buzzer s'active quand le chrono démarre." };
     case "BUZZ_OPEN":
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked, seed) };
-      return { cls: "armed", big: "BUZZ", small: pick(TEASES.armed, seed), color: me.color };
+      return { cls: "armed", big: "BUZZ", small: state.mode === "blindtest" ? "Qui chante ? Quel titre ?" : pick(TEASES.armed, seed), color: me.color };
     case "ANSWERING":
       if (state.hasHand && !state.floorOpen) return { cls: "ready", big: "C'EST TOI", small: "Attends ton prénom… puis parle !" };
       if (state.hasHand) return { cls: "hand", big: "PARLE !", small: pick(TEASES.hand, seed) };

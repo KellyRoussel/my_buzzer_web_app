@@ -55,9 +55,13 @@
         <span class="dot"></span><span id="answering-text"></span>
       </div>
       <div id="answer" class="answer hidden">
-        <span class="muted">Réponse</span>
-        <strong id="answer-text"></strong>
+        <img id="cover" class="cover hidden" alt="">
+        <div>
+          <span class="muted">Réponse</span>
+          <strong id="answer-text"></strong>
+        </div>
       </div>
+      <audio id="clip" preload="auto"></audio>
     </section>
     <aside class="panel scoreboard">
       <h2>Scores</h2>
@@ -76,6 +80,8 @@
 
   <footer class="controls hidden" id="controls">
     <button class="good" data-action="correct" title="Raccourci : C">✅ Correct</button>
+    <button class="good song-only hidden" data-action="artist" title="Raccourci : A">🎤 Artiste</button>
+    <button class="good song-only hidden" data-action="title" title="Raccourci : S">🎵 Titre</button>
     <button class="bad" data-action="wrong" title="Raccourci : F">❌ Faux</button>
     <button class="secondary" data-action="timer" title="Raccourci : T">⏱️ Chrono</button>
     <button class="secondary" data-action="reveal" title="Raccourci : R">💡 Réponse</button>
