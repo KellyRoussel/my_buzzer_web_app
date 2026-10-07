@@ -29,14 +29,16 @@ export class QuizAgent {
    * @param {(status: string) => void} options.onStatus
    * @param {(mode: string, previous: string) => void} options.onMode
    * @param {(text: string) => void} [options.onAgentText]  what the agent says, as text
+   * @param {(text: string) => void} [options.onUserText]  what the microphone heard (final transcripts)
    * @param {(kind: string, text: string, data?: any) => void} options.onLog
    */
-  constructor({ getCredentials, tools, onStatus, onMode, onAgentText, onLog }) {
+  constructor({ getCredentials, tools, onStatus, onMode, onAgentText, onUserText, onLog }) {
     this.getCredentials = getCredentials;
     this.tools = tools;
     this.onStatus = onStatus;
     this.onMode = onMode;
     this.onAgentText = onAgentText;
+    this.onUserText = onUserText;
     this.onLog = onLog;
     this.conversation = null;
     this.status = "disconnected";
@@ -71,6 +73,7 @@ export class QuizAgent {
         onMessage: ({ role, message }) => {
           this.onLog("agent", `${role === "agent" ? "🗣️" : "👂"} ${message}`);
           if (role === "agent") this.onAgentText?.(message);
+          else this.onUserText?.(message);
         },
         onError: (message, context) => this.onLog("error", `agent error: ${message}`, context),
       };

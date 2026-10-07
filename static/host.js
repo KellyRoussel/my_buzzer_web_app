@@ -21,6 +21,10 @@ const FLOOR_MAX_MS = 4500;      // never wait longer (the server opens it at 5 s
 const TIMER_DEFER_MAX_MS = 15000;
 // The agent read the question but forgot start_timer: start it after this much silence.
 const TIMER_FALLBACK_MS = 4000;
+// When the answer window closes mid-sentence, the mic is muted at once (nothing said later is
+// heard) but the transcript of what was said in time arrives a moment later: wait for it
+// before asking the agent to judge, unless the agent judges on its own first.
+const ANSWER_TRANSCRIPT_GRACE_MS = 2500;
 
 let state = null;
 let agentConfigured = false;
@@ -28,6 +32,8 @@ let answerTimeUp = false;
 let questionSpoken = false; // has the agent actually read the current question out loud?
 let floorGate = null; // pending "open the floor" after a buzz: { sentAt, sawSpeech, timers }
 let timerRequest = null; // start_timer called while the agent was still talking
+let answerHeard = []; // transcripts of the player's answer, captured while their mic was open
+let timeUpTimer = null;
 let timerFallback = null;
 let deadlineAt = null;
 let renderedQuestion = null;
@@ -166,6 +172,10 @@ const agent = new QuizAgent({
     if (timerRequest) startTimer("agent finished speaking");
     // The agent read the question but did not call start_timer: start it after a short silence.
     else if (questionSpoken) timerFallback = setTimeout(() => startTimer("fallback, no start_timer"), TIMER_FALLBACK_MS);
+  },
+  onUserText: (text) => {
+    // The mic is only open during the answer window, so this is what the player said in time.
+    if (state?.phase === "ANSWERING" && state.floorOpen) answerHeard.push(text);
   },
   onAgentText: (text) => {
     if (floorGate) floorGate.sawSpeech = true;
@@ -319,6 +329,7 @@ function onEvent(event) {
     }
     case "floor_open": {
       clearFloorGate();
+      answerHeard = [];
       break;
     }
     case "buzz_timeout":
@@ -327,11 +338,20 @@ function onEvent(event) {
         + "appelle reveal_answer, annonce la réponse, puis appelle next_question.");
       break;
     case "answer_time_up":
-      answerTimeUp = true;
-      tellAgent(`FIN_DU_TEMPS: le micro de ${event.name} est coupé. Juge maintenant ce que tu as entendu `
-        + `avec submit_verdict (playerId "${event.playerId}"). Si tu n'as rien entendu de clair, c'est faux.`);
+      answerTimeUp = true; // mutes the mic (applyMic below): what is said from now on does not count
+      clearTimeout(timeUpTimer);
+      timeUpTimer = setTimeout(() => {
+        if (state?.phase !== "ANSWERING" || state.answering !== event.playerId) return; // already judged
+        const heard = answerHeard.join(" ").trim();
+        tellAgent(`FIN_DU_TEMPS: le temps de ${event.name} est écoulé et son micro est coupé. `
+          + (heard ? `Voici tout ce qu'il ou elle a dit dans le temps imparti : « ${heard} ». `
+              + "Juge la réponse donnée là-dedans, même si elle est suivie de blabla, et ignore tout ce qui viendrait après. "
+            : "Aucune réponse n'a été captée dans le temps imparti : c'est faux. ")
+          + `Appelle submit_verdict (playerId "${event.playerId}").`);
+      }, ANSWER_TRANSCRIPT_GRACE_MS);
       break;
     case "verdict":
+      clearTimeout(timeUpTimer);
       answerTimeUp = false;
       sfx(event.correct ? "correct" : "wrong");
       if (event.by !== "agent") tellAgent(verdictMessage(event));

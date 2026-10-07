@@ -131,7 +131,7 @@ earlier buzz is "too early" (the phone says so) and does not count.
 | Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
 | Countdown | Started by the agent's `start_timer` tool once it has read the question; 20 s to buzz |
 | No buzz | The question closes when the 20 s run out |
-| Answer window | The agent says the player's name; when it stops talking the mic opens for 8 s, then the agent must judge. Counted wrong after 20 s without a verdict |
+| Answer window | The agent says the player's name; when it stops talking the mic opens for 8 s. Only what is said within those 8 s counts: an answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
 ## Design choices
@@ -158,6 +158,12 @@ who has the hand. Even then, it waits for the agent: after a buzz the agent only
 player's name ("Léa ?"), and the host screen opens the mic (and starts the 8 s answer window)
 once the agent stops talking, so the player never answers over the host. The phone shows
 "C'EST TOI" and then "PARLE !", and a banner on the TV shows "🎙️ À l'écoute de Léa".
+
+When the 8 s run out, the mic is muted at once, so nothing said afterwards reaches the agent.
+The transcript of the sentence that was cut off arrives a moment later, though, so the host
+screen waits 2.5 s, then sends the agent `FIN_DU_TEMPS` with everything the player said in
+time, and asks it to judge the answer in there and ignore the chatter around it. If the
+agent judges on its own before that, the message is not sent.
 
 ### Starting the countdown
 
