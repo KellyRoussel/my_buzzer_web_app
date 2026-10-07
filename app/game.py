@@ -122,6 +122,7 @@ class Game:
         self.buzz_log: list[BuzzRecord] = []
         self.buzz_opened_at: float | None = None
         self.answer_started_at: float | None = None
+        self.answered = False  # the player's answer has been heard
         self.deadline: float | None = None
         self.deadline_kind: str | None = None
         self.deadline_total: float | None = None
@@ -220,6 +221,7 @@ class Game:
             self.phase = Phase.ANSWERING
             self.answering = player_id
             self.answer_started_at = now
+            self.answered = False
             self._set_deadline("answer", now, self.settings.answer_window_s)
             reaction = now - self.buzz_opened_at if self.buzz_opened_at is not None else None
             events.append({
@@ -237,6 +239,16 @@ class Game:
                 events.append({"type": "locked_spam", "playerId": player_id, "name": player.name,
                                "attempts": player.spam_this_question})
         return result, events
+
+    def answer_heard(self, now: float) -> list[Event]:
+        """The player's answer has been heard: stop the answer countdown and wait for the verdict."""
+        if self.phase != Phase.ANSWERING or self.answered:
+            return []
+        self.answered = True
+        remaining = self.answer_started_at + self.settings.answer_hard_timeout_s - now
+        self._set_deadline("answer_hard", now, max(remaining, self.settings.answer_window_s))
+        player = self.players[self.answering]
+        return [{"type": "answer_heard", "playerId": player.id, "name": player.name}]
 
     def submit_verdict(
         self,
@@ -430,6 +442,7 @@ class Game:
             },
             "locked": player_id in self.locked,
             "hasHand": self.answering == player_id,
+            "answered": self.answered and self.answering == player_id,
             "answeringName": self.players[self.answering].name if self.answering else None,
             "canBuzz": self.phase in BUZZABLE_PHASES and player_id not in self.locked and not self.paused,
             **self._deadline_view(now),

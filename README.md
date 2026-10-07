@@ -153,7 +153,7 @@ earlier buzz is "too early" (the phone says so) and does not count.
 | Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
 | Countdown | Started by the agent's `start_timer` tool once it has read the question; 20 s to buzz |
 | No buzz | The question closes when the 20 s run out |
-| Answer window | The mic opens as soon as the player buzzes, for 8 s: they answer straight away, without waiting for the host. Only what is said within those 8 s counts: an answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
+| Answer window | The mic opens as soon as the player buzzes, for 8 s: they answer straight away, without waiting for the host. As soon as their answer is transcribed, the mic closes and the countdown stops (only the first answer counts). An answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
 ## Design choices
@@ -177,9 +177,11 @@ periodic pings (the socket already answers `ping` with `pong`), then arbitrate o
 The host computer's mic hears the whole room, so it is **muted by default** while the agent
 reads and while players think. It opens only in the lobby, at the end, and for the player
 who has the hand, as soon as they buzz: the phone vibrates and shows "PARLE !", the TV shows
-"🎙️ À l'écoute de Léa", and the player answers right away. The agent is told with a silent
-contextual update (`BUZZ`), and the host screen mutes the agent's voice until the player's
-answer has been transcribed, so the host never talks over the answer.
+"🎙️ À l'écoute de Léa", and the player answers right away. The agent is told with a
+contextual update (`BUZZ`), which does not make it talk over the player. When the answer is
+transcribed, the mic closes, the countdown stops, and the agent judges it. If the agent has
+not reacted 2.5 s later (or judged 7 s later), the host screen sends it the transcript with
+an explicit `JUGE` message, so a quiet agent never stalls the game.
 
 When the 8 s run out, the mic is muted at once, so nothing said afterwards reaches the agent.
 The transcript of the sentence that was cut off arrives a moment later, though, so the host

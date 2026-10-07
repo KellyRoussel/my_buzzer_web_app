@@ -91,9 +91,17 @@ package? Everything that depends on a live voice session is listed at the end un
    the mic is the app's job. First fix: the agent only says the name, and the host screen
    opens the mic on the agent's next speaking → listening transition. Players found waiting
    for their name too slow, so the final design keeps the agent out of the loop: the mic
-   opens on the buzz, the agent is told with `sendContextualUpdate` (which does not trigger a
-   reply), and `setVolume({ volume: 0 })` mutes it until the player's transcript arrives, in
-   case it speaks anyway.
+   opens on the buzz and the agent is told with `sendContextualUpdate` (which does not trigger
+   a reply).
+3. **A silent agent stalls the game.** The first version of that told the agent "ne dis RIEN"
+   at the buzz and muted its voice until the player's transcript arrived. In the live game,
+   the player answered and nothing happened: the agent never judged. Either instruction can
+   cause it (an LLM told to stay silent may stay silent on the next turn too), and nothing in
+   the SDK says whether a user turn after a contextual update is guaranteed to get a reply.
+   The fix: no "say nothing" wording, no muting; the host closes the mic as soon as the
+   answer is transcribed and, if the agent has not reacted 2.5 s later, sends the transcript
+   with an explicit "judge now" message. *Suggestion:* document how contextual updates and
+   the following user turn interact.
 2. **`onModeChange` is not "the agent finished reading".** The agent often comments on the
    previous answer, calls `next_question`, then reads the question, sometimes as separate
    turns with a listening gap in between. Using the first speaking → listening transition

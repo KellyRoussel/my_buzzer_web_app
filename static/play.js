@@ -135,6 +135,7 @@ function view() {
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked, seed) };
       return { cls: "armed", big: "BUZZ", small: state.mode === "blindtest" ? "Qui chante ? Quel titre ?" : pick(TEASES.armed, seed), color: me.color };
     case "ANSWERING":
+      if (state.hasHand && state.answered) return { cls: "hand", big: "🤞", small: "Réponse envoyée. Verdict dans un instant…" };
       if (state.hasHand) return { cls: "hand", big: "PARLE !", small: pick(TEASES.hand, seed) };
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: `${state.answeringName} tente sa chance.` };
       return { cls: "late", big: "TROP TARD", small: `${state.answeringName} a la main.` };
@@ -173,7 +174,7 @@ function render() {
 
 function animateTimer() {
   const bar = $("timer-bar");
-  if (state && deadlineAt && !state.paused && state.deadlineKind !== "reading") {
+  if (state && deadlineAt && !state.paused && !["reading", "answer_hard"].includes(state.deadlineKind)) {
     const remaining = Math.max(0, deadlineAt - performance.now() / 1000);
     const total = state.deadlineTotal || 20;
     bar.style.width = `${Math.min(100, (remaining / total) * 100)}%`;

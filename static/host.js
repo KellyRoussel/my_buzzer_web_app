@@ -21,6 +21,11 @@ const TIMER_FALLBACK_MS = 4000;
 // heard) but the transcript of what was said in time arrives a moment later: wait for it
 // before asking the agent to judge, unless the agent judges on its own first.
 const ANSWER_TRANSCRIPT_GRACE_MS = 2500;
+// Once the player's answer is transcribed, the agent should judge it on its own. If it has not
+// started talking after this delay, the host screen asks it explicitly (and again later if
+// there is still no verdict).
+const JUDGE_NUDGE_MS = 2500;
+const JUDGE_NUDGE_AGAIN_MS = 7000;
 
 let state = null;
 let agentConfigured = false;
@@ -29,6 +34,7 @@ let questionSpoken = false; // has the agent actually read the current question 
 let timerRequest = null; // start_timer called while the agent was still talking
 let answerHeard = []; // transcripts of the player's answer, captured while their mic was open
 let timeUpTimer = null;
+let judgeNudges = [];
 let timerFallback = null;
 let deadlineAt = null;
 let renderedQuestion = null;
@@ -168,10 +174,9 @@ const agent = new QuizAgent({
   },
   onUserText: (text) => {
     // The mic is only open during the answer window, so this is what the player said in time.
-    if (state?.phase === "ANSWERING") {
-      answerHeard.push(text);
-      syncClip(); // the player has answered: the agent may speak again
-    }
+    if (state?.phase !== "ANSWERING" || answerTimeUp || answerHeard.length > 0) return;
+    answerHeard.push(text);
+    onAnswerHeard(state.answering, text);
   },
   onAgentText: (text) => {
     if (state?.phase === "QUESTION_READING" && !questionSpoken && state.question
@@ -183,6 +188,31 @@ const agent = new QuizAgent({
   },
   onLog: log,
 });
+
+/**
+ * The player's answer is in: close their mic (only the first answer counts), stop the answer
+ * countdown, and make sure the agent judges it.
+ */
+function onAnswerHeard(playerId, text) {
+  log("agent", `answer heard: ${text}`);
+  applyMic();
+  action("answer_heard").catch(() => {});
+  const nudge = (force) => () => {
+    if (state?.phase !== "ANSWERING" || state.answering !== playerId) return; // judged meanwhile
+    if (!force && agent.mode === "speaking") return; // it is reacting: give it time
+    const name = playerName(playerId);
+    log("agent", "agent has not judged yet: nudging it");
+    tellAgent(`JUGE: ${name} a répondu « ${text} ». Juge cette réponse maintenant avec submit_verdict `
+      + `(playerId "${playerId}"${isSongRound() ? ", avec artist et title" : ""}), puis réagis en une phrase.`);
+  };
+  clearJudgeNudges();
+  judgeNudges = [setTimeout(nudge(false), JUDGE_NUDGE_MS), setTimeout(nudge(true), JUDGE_NUDGE_AGAIN_MS)];
+}
+
+function clearJudgeNudges() {
+  judgeNudges.forEach(clearTimeout);
+  judgeNudges = [];
+}
 
 /** start_timer tool: start the countdown once the agent has finished reading the question. */
 function requestTimerFromAgent() {
@@ -218,7 +248,7 @@ function startTimer(reason) {
 function desiredMicOpen() {
   if (!agent.connected || !state || state.paused) return false;
   if (state.phase === "LOBBY" || state.phase === "FINISHED") return true;
-  return state.phase === "ANSWERING" && !answerTimeUp;
+  return state.phase === "ANSWERING" && !answerTimeUp && answerHeard.length === 0;
 }
 
 const normalize = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -286,16 +316,16 @@ function onEvent(event) {
       break;
     case "buzz_winner": {
       // The player's mic opens at once (applyMic below): they answer straight away. The agent is
-      // told silently (a contextual update does not make it talk) and its voice stays muted
-      // until the player's answer has been heard.
+      // told with a contextual update, which does not make it talk over the player.
       answerTimeUp = false;
       answerHeard = [];
+      clearJudgeNudges();
       sfx("buzz");
       const speed = event.reactionS != null ? ` en ${String(event.reactionS).replace(".", ",")} s` : "";
-      agent.context(`BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed}. Son micro est déjà `
-        + "ouvert et il ou elle répond tout de suite : ne dis RIEN, n'appelle pas le joueur, écoute UNE réponse, "
-        + `puis appelle submit_verdict avec playerId "${event.playerId}"`
-        + (isSongRound() ? " et artist / title (true ou false). La musique est coupée." : "."));
+      agent.context(`BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed} et répond directement `
+        + "dans son micro, sans que tu l'appelles. Dès que tu entends sa réponse, juge-la avec submit_verdict "
+        + `(playerId "${event.playerId}"${isSongRound() ? ", avec artist et title" : ""}), puis réagis.`
+        + (isSongRound() ? " La musique est coupée." : ""));
       break;
     }
     case "buzz_timeout":
@@ -313,12 +343,13 @@ function onEvent(event) {
         tellAgent(`FIN_DU_TEMPS: le temps de ${event.name} est écoulé et son micro est coupé. `
           + (heard ? `Voici tout ce qu'il ou elle a dit dans le temps imparti : « ${heard} ». `
               + "Juge la réponse donnée là-dedans, même si elle est suivie de blabla, et ignore tout ce qui viendrait après. "
-            : "Aucune réponse n'a été captée dans le temps imparti : c'est faux. ")
+            : "Juge ce que tu as entendu dans le temps imparti ; si tu n'as rien entendu de clair, c'est faux. ")
           + `Appelle submit_verdict (playerId "${event.playerId}"${isSongRound() ? ", avec artist et title" : ""}).`);
       }, ANSWER_TRANSCRIPT_GRACE_MS);
       break;
     case "verdict":
       clearTimeout(timeUpTimer);
+      clearJudgeNudges();
       if (!event.correct && event.next === "BUZZ_OPEN" && isSongRound() && agent.connected) holdMusicForAgent();
       answerTimeUp = false;
       sfx(event.correct ? "correct" : "wrong");
@@ -480,8 +511,7 @@ function syncClip() {
   const guessing = Boolean(url) && state.phase === "BUZZ_OPEN" && !state.paused && !musicHold;
   const reveal = Boolean(url) && state.phase === "REVEAL" && Boolean(state.answer) && !state.paused;
   // The player who buzzed is answering: nothing from the agent until their answer is heard.
-  const playerAnswering = state.phase === "ANSWERING" && !answerTimeUp && answerHeard.length === 0;
-  agent.setSilenced(guessing || playerAnswering);
+  agent.setSilenced(guessing);
   if (!url) return;
   audio.volume = !reveal ? 1 : agent.connected && agent.mode === "speaking" ? REVEAL_DUCKED_VOLUME : REVEAL_MUSIC_VOLUME;
   if ((guessing || reveal) && audio.paused) audio.play().catch((err) => log("error", `clip: ${err.message}`));
@@ -571,7 +601,8 @@ function renderStage() {
   $("answering").classList.toggle("hidden", !answering);
   if (answering) {
     const name = playerName(answering);
-    $("answering-text").textContent = agent.connected && !answerTimeUp ? `🎙️ À l'écoute de ${name}` : `${name} a la main`;
+    $("answering-text").textContent = answerHeard.length > 0 || answerTimeUp ? `🤔 ${name} a répondu… verdict ?`
+      : agent.connected ? `🎙️ À l'écoute de ${name}` : `${name} a la main`;
   }
 
   $("answer").classList.toggle("hidden", !state.answer);
@@ -639,7 +670,7 @@ function renderAgent() {
 
 function animateTimer() {
   const bar = $("timer-bar");
-  if (state && deadlineAt && !state.paused && state.deadlineKind !== "reading") {
+  if (state && deadlineAt && !state.paused && !["reading", "answer_hard"].includes(state.deadlineKind)) {
     const remaining = Math.max(0, deadlineAt - performance.now() / 1000);
     bar.style.width = `${Math.min(100, (remaining / (state.deadlineTotal || 20)) * 100)}%`;
   } else {

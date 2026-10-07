@@ -254,6 +254,22 @@ def test_buzz_opens_the_answer_window_at_once():
     assert game.deadline == pytest.approx(10 + game.settings.answer_window_s)
 
 
+def test_answer_heard_stops_the_answer_countdown():
+    game = started_game(answer_window_s=8, answer_hard_timeout_s=20)
+    game.buzz("p0", 10)
+    events = game.answer_heard(12)
+    assert events[0]["type"] == "answer_heard"
+    assert game.deadline_kind == "answer_hard" and game.deadline == pytest.approx(30)
+    assert game.player_state("p0", 12)["answered"] is True
+    assert game.answer_heard(13) == []          # idempotent
+    assert game.tick(18) == []                  # no "time up" once the answer is in
+    game.submit_verdict("p0", True, 14)
+    game.next_question(15)
+    game.start_timer(15)
+    game.buzz("p1", 16)
+    assert game.answered is False
+
+
 def test_answer_window_then_hard_timeout_counts_wrong():
     game = started_game()
     game.buzz("p0", 10)
