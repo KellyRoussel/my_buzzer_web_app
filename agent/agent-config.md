@@ -20,7 +20,7 @@ references them by id (`POST /v1/convai/agents/create`), and prints the
 | Setting | Value |
 |---|---|
 | Language | French (`fr`) |
-| LLM | `gemini-2.5-flash` (fast tool calls matter more than depth here) |
+| LLM | `gemini-3.8-flash` (fast tool calls matter more than depth here; `gemini-2.5-flash` is deprecated) |
 | Voice model | `eleven_v3_conversational`, expressive mode on (audio tags like `[laughs]`, `[sarcastic]`) |
 | Voice | An energetic French game-show voice. Pick one in the Voice Library and pass its id. |
 | Max conversation duration | 1800 s |

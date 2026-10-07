@@ -1,7 +1,7 @@
 {
   "name": "Quiz Host — Max",
   "language": "fr",
-  "llm": "gemini-2.5-flash",
+  "llm": "gemini-3.8-flash",
   "prompt_file": "system_prompt.fr.txt",
   "first_message": "[excited] Bonsoir, bonsoir ! Ici Max, votre animateur. Scannez le QR code, choisissez un pseudo… et préparez déjà vos excuses pour les mauvaises réponses.",
   "tts": {

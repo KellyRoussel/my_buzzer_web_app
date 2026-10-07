@@ -78,6 +78,11 @@ package? Everything that depends on a live voice session is listed at the end un
    models". It would be friendlier if the API returned a warning when the flag is set on a
    model that ignores it.
 
+10. **No deprecation signal in the SDK.** `gemini-2.5-flash` turned out to be deprecated on
+    the platform, but the Python SDK's `Llm` type lists it next to its successors with no
+    marker, so the creation script happily used it. *Suggestion:* flag deprecated models in
+    the generated types or return a warning from the agent-creation API.
+
 ## Observed in the first live game
 
 1. **The agent talked over the player.** After a buzz, the agent said "Kelly, on t'écoute !"
