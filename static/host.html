@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quiz Host · Plateau</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/quiz.css">
+  <link rel="stylesheet" href="/static/host.css">
+</head>
+<body>
+  <header class="bar">
+    <span class="brand title-font">Quiz Host</span>
+    <span class="pill title-font" id="room-pill">Salle ····</span>
+    <span class="spacer"></span>
+    <span class="pill" id="agent-pill"><span class="dot"></span><span id="agent-text">Animateur absent</span></span>
+    <span class="pill" id="mic-pill"><span id="mic-text">🎙️ Micro coupé</span></span>
+    <span class="pill" id="conn-pill">Connexion…</span>
+  </header>
+
+  <div id="fatal" class="fatal hidden"></div>
+
+  <!-- Lobby -->
+  <main id="lobby" class="lobby hidden">
+    <section class="panel join">
+      <h2>Scannez pour jouer</h2>
+      <img id="qr" alt="QR code pour rejoindre la partie">
+      <p class="code-line">ou allez sur <strong id="join-url"></strong></p>
+      <p class="code-big title-font" id="code-big"></p>
+    </section>
+    <section class="panel players">
+      <h2>Joueurs <span class="muted" id="player-count"></span></h2>
+      <ul id="lobby-players" class="chips"></ul>
+      <p class="muted" id="lobby-hint">On attend les retardataires. Il y en a toujours un.</p>
+      <div class="actions">
+        <button id="start-agent">🎙️ Lancer l'animateur</button>
+        <button id="start-game" class="secondary">▶️ Démarrer la partie</button>
+      </div>
+      <p class="muted small" id="agent-help"></p>
+    </section>
+  </main>
+
+  <!-- In game -->
+  <main id="stage" class="stage hidden">
+    <section class="question-area">
+      <div class="meta">
+        <span class="pill title-font" id="q-progress"></span>
+        <span class="pill" id="q-category"></span>
+        <span class="pill warn hidden" id="paused-pill">⏸️ Pause</span>
+      </div>
+      <h1 id="q-text" class="question"></h1>
+      <div class="timer"><div id="timer-bar"></div></div>
+      <div id="answering" class="answering hidden">
+        <span class="dot"></span><span id="answering-text"></span>
+      </div>
+      <div id="answer" class="answer hidden">
+        <span class="muted">Réponse</span>
+        <strong id="answer-text"></strong>
+      </div>
+    </section>
+    <aside class="panel scoreboard">
+      <h2>Scores</h2>
+      <ol id="scores"></ol>
+    </aside>
+  </main>
+
+  <!-- Finished -->
+  <main id="finished" class="finished hidden">
+    <h1 class="title-font">Et le grand gagnant est…</h1>
+    <div id="podium" class="podium"></div>
+    <ol id="final-scores" class="final-scores"></ol>
+    <button id="new-game" class="secondary">Nouvelle partie</button>
+  </main>
+  <canvas id="confetti" class="confetti"></canvas>
+
+  <footer class="controls hidden" id="controls">
+    <button class="good" data-action="correct" title="Raccourci : C">✅ Correct</button>
+    <button class="bad" data-action="wrong" title="Raccourci : F">❌ Faux</button>
+    <button class="secondary" data-action="timer" title="Raccourci : T">⏱️ Chrono</button>
+    <button class="secondary" data-action="reveal" title="Raccourci : R">💡 Réponse</button>
+    <button class="secondary" data-action="next" title="Raccourci : N">⏭️ Question suivante</button>
+    <button class="secondary" data-action="pause" id="pause-btn" title="Raccourci : P">⏸️ Pause</button>
+    <button class="secondary" data-action="agent" id="agent-btn">🎙️ Animateur</button>
+  </footer>
+
+  <aside id="debug" class="debug hidden">
+    <div class="debug-head">
+      <strong>Debug</strong>
+      <label><input type="checkbox" id="buzz-as-context"> Buzz via contextual update</label>
+      <label><input type="checkbox" id="show-secrets"> Afficher les réponses</label>
+      <span class="muted">D pour fermer</span>
+    </div>
+    <ol id="log"></ol>
+  </aside>
+
+  <script type="module" src="/static/host.js"></script>
+</body>
+</html>

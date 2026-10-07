@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#120c2b">
+  <title>Buzzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/quiz.css">
+  <style>
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+    body { display: flex; flex-direction: column; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+
+    #join { margin: auto; width: min(420px, calc(100% - 32px)); display: grid; gap: 1rem; text-align: center; }
+    #join h1 { color: var(--accent); margin: 0; font-size: 2.4rem; }
+    #join input { text-align: center; font-size: 1.3rem; }
+    #join .error { color: var(--red); min-height: 1.2em; margin: 0; }
+
+    #game { flex: 1; display: flex; flex-direction: column; padding: 16px; gap: 12px; min-height: 0; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .me { display: flex; align-items: center; gap: 0.5em; font-weight: 800; overflow: hidden; }
+    .me .swatch { width: 1em; height: 1em; border-radius: 50%; flex: none; }
+    .me span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    #buzz {
+      flex: 1;
+      width: 100%;
+      border-radius: 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      padding: 1rem;
+      color: #120c2b;
+      background: var(--grey);
+      text-align: center;
+      transition: background 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #buzz .big { font-family: var(--title-font); font-size: clamp(3rem, 18vw, 6rem); line-height: 1; }
+    #buzz .big.long { font-size: clamp(2.2rem, 12vw, 4.5rem); }
+    #buzz .small { font-size: 1.15rem; font-weight: 600; max-width: 22ch; }
+    #buzz.waiting { background: var(--grey); color: var(--text); }
+    #buzz.armed { box-shadow: inset 0 -12px 0 rgba(0, 0, 0, 0.25); }
+    #buzz.armed:active { box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25); transform: translateY(6px); }
+    #buzz.ready { background: var(--accent); }
+    #buzz.hand { background: var(--green); animation: pulse 1.1s infinite; }
+    #buzz.late { background: var(--orange); }
+    #buzz.locked { background: var(--red); color: white; }
+    #buzz.flash { animation: shake 0.3s; }
+    #buzz.win { background: var(--accent); }
+
+    .timer { height: 8px; border-radius: 999px; background: var(--panel); overflow: hidden; }
+    .timer > div { height: 100%; width: 0; background: var(--accent); }
+    .footer { display: flex; justify-content: space-between; color: var(--muted); font-weight: 600; }
+    #conn.warn { color: var(--orange); }
+  </style>
+</head>
+<body>
+  <form id="join" class="hidden">
+    <h1>Buzzer</h1>
+    <p class="muted">Salle <strong id="join-code"></strong>. Choisis un pseudo dont tu n'auras pas honte quand l'animateur va le prononcer.</p>
+    <input id="name" maxlength="20" placeholder="Ton pseudo" autocomplete="nickname" required>
+    <button type="submit">Rejoindre</button>
+    <p class="error" id="join-error"></p>
+  </form>
+
+  <main id="game" class="hidden">
+    <div class="topbar">
+      <div class="me"><span class="swatch" id="me-color"></span><span id="me-name"></span></div>
+      <span class="pill" id="progress"></span>
+    </div>
+    <div class="timer" aria-hidden="true"><div id="timer-bar"></div></div>
+    <button id="buzz" class="waiting" aria-live="polite">
+      <span class="big" id="buzz-big">…</span>
+      <span class="small" id="buzz-small"></span>
+    </button>
+    <div class="footer">
+      <span id="score">0 pt</span>
+      <span id="conn"></span>
+    </div>
+  </main>
+
+  <script type="module" src="/static/play.js"></script>
+</body>
+</html>
