@@ -52,6 +52,7 @@ def agent_payload(config: dict, tool_ids: list[str], voice_id: str | None) -> di
                 },
             },
             "tts": tts,
+            **({"turn": config["turn"]} if config.get("turn") else {}),
             "conversation": {"max_duration_seconds": config["max_duration_seconds"]},
         },
     }

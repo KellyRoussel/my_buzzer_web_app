@@ -130,6 +130,14 @@ package? Everything that depends on a live voice session is listed at the end un
    2.3 s later. Waiting for `listening` was not enough, since the agent was not speaking yet:
    the host now waits up to 3 s for the speech to start, then for it to end.
 
+7. **The app cannot end a user turn.** Once the answer is out, the game wants it judged
+   right away, but the transcript (and so the agent's reply) only comes when the server
+   decides the turn is over. With a patient turn setting, a short answer was transcribed
+   ~9 s after the buzz. Muting the mic does not help in WebRTC (see 4). The knobs are
+   `turn_eagerness: eager` and `speculative_turn`. *Suggestion:* a client event such as
+   `conversation.endUserTurn()` for apps that know when the user is done (push-to-talk,
+   buzzers, kiosks).
+
 ## To verify live
 
 Measured on real games with the debug panel (`D` on the host screen, which logs WebSocket
