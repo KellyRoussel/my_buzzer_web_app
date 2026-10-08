@@ -22,6 +22,7 @@ references them by id (`POST /v1/convai/agents/create`), and prints the
 | Language | French (`fr`) |
 | LLM | `gemini-3.8-flash` (fast tool calls matter more than depth here; `gemini-2.5-flash` is deprecated) |
 | Turn eagerness | `eager`, with speculative turn on: the player's answer is transcribed (and judged) as soon as they stop talking |
+| Take turn after silence | `-1` (wait indefinitely): the game, not silence, tells the agent when to speak |
 | Reasoning effort | `minimal` (or the lowest the model offers). Thinking adds seconds before every reply, and the game's tool calls are trivial; in a live game, replies arriving 6–10 s late made the agent talk at the wrong moments |
 | Voice model | `eleven_v3_conversational`, expressive mode on (audio tags like `[laughs]`, `[sarcastic]`) |
 | Voice | An energetic French game-show voice. Pick one in the Voice Library and pass its id. |
@@ -99,10 +100,11 @@ Each starts with an upper-case keyword that the prompt tells the agent never to 
 
 ## Settings worth tuning on real games
 
-- **Turn timeout / silence handling**: while the mic is muted the agent hears silence, and
-  every turn timeout produces an empty user turn ("..." in the debug panel) that makes the
-  agent re-engage ("On t'attend !"), sometimes over the music. Raise the turn timeout to the
-  maximum in the agent's advanced settings, and make sure silence does not end the call.
+- **"Take turn after silence" (`turn_timeout`): `-1`**, so the agent waits indefinitely. While
+  the mic is muted the agent hears silence, and every timeout produced an empty user turn
+  ("..." in the debug panel) that made it re-engage ("On t'attend !"), sometimes over the
+  music. The game drives the agent with its own messages (`TIMEOUT`, `JUGE`, `SUITE`), so it
+  never needs to take the turn on its own. Also make sure silence does not end the call.
 - **Turn eagerness: `eager`** (Advanced → turn taking), and **speculative turn** on. The agent
   can only judge once ElevenLabs has decided the player's turn is over and sent the
   transcript; with a patient setting, a short answer was transcribed ~9 s after the buzz, so

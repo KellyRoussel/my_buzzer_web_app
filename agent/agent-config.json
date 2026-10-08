@@ -10,6 +10,7 @@
     "expressive_mode": true
   },
   "turn": {
+    "turn_timeout": -1,
     "turn_eagerness": "eager",
     "speculative_turn": true
   },
