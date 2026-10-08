@@ -31,3 +31,13 @@ def test_agent_tools_match_the_host_screen_tools():
     tools_block = host_js.split("tools: {", 1)[1].split("},\n  onStatus", 1)[0]
     implemented = set(re.findall(r"^\s+(\w+): ", tools_block, flags=re.M))
     assert configured == implemented
+
+
+def test_host_relays_every_submit_verdict_parameter():
+    """The host screen must pass on every parameter the agent's tool declares."""
+    config = json.loads((AGENT_DIR / "agent-config.json").read_text(encoding="utf-8"))
+    verdict = next(tool for tool in config["tools"] if tool["name"] == "submit_verdict")
+    host_js = (ROOT / "static" / "host.js").read_text(encoding="utf-8")
+    relay = host_js.split("submit_verdict: (", 1)[1].split("}),", 1)[0]
+    for name in verdict["parameters"]["properties"]:
+        assert relay.count(name) >= 2, f"{name} is not relayed to the game server"

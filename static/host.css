@@ -34,6 +34,9 @@ body { min-height: 100vh; display: flex; flex-direction: column; }
 .answering .dot { width: 0.7em; height: 0.7em; color: var(--green); animation: pulse 1s infinite; }
 .answer { display: grid; gap: 0.2rem; font-size: clamp(1.8rem, 4vw, 3.4rem); padding: 0.6em 1em; border-radius: var(--radius); background: rgba(255, 210, 61, 0.12); border: 2px solid var(--accent); animation: pop 0.4s ease; }
 .answer .muted { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.1em; }
+.answer:has(.cover:not(.hidden)) { grid-template-columns: auto 1fr; align-items: center; gap: 1rem; }
+.answer > div { display: grid; gap: 0.2rem; }
+.cover { width: clamp(90px, 14vw, 180px); aspect-ratio: 1; border-radius: 12px; object-fit: cover; }
 
 .scoreboard ol, .final-scores { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
 .score-row { display: grid; grid-template-columns: 2.2em 1fr auto; align-items: center; gap: 0.5em; padding: 0.5em 0.8em; border-radius: 12px; background: rgba(0, 0, 0, 0.2); font-weight: 700; font-size: 1.15rem; transition: transform 0.3s ease; }

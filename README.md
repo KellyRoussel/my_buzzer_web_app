@@ -87,6 +87,34 @@ Run every command from the repository root: `app/config.py` reads `.env` from th
    python -m pytest
    ```
 
+## Blind test mode
+
+Choose **Blind test : chansons françaises** when creating the room. Each round is a 30-second
+extract of a French song, played by the host screen (the agent never sings or hums).
+
+- **Songs**: `data/songs.fr.json` lists 42 French hits, from Piaf to Aya Nakamura, with the
+  accepted spellings for the artist and the title. Edit it freely.
+- **Extracts**: the [Deezer API](https://developers.deezer.com/api) provides official 30 s
+  previews without an API key. Preview URLs are signed and expire, so the server looks them
+  up when the room is created (`app/deezer.py`) and skips songs Deezer cannot find. The host
+  computer needs internet access during the game.
+- **Flow**: the agent announces "Chanson numéro 3 !" and calls `start_timer`; the music starts
+  when it stops talking, with 25 s to buzz. While the song plays before the answer, the agent's
+  voice is muted on the host screen (the song has priority, whatever the LLM decides to say).
+  A buzz pauses the music and opens the player's mic at once; after a wrong answer, the music waits for the agent to relaunch the
+  others and resumes. Once the answer is out, the TV shows the album cover and the song plays
+  under the agent's reaction (ducked to 12 % while it talks, so the voice stays on top), then
+  stops 1.5 s after the agent is done (12 s at most).
+- **Pauses inside a sentence**: the SDK reports "listening" during short pauses within one
+  sentence (between expression tags). The host only treats the agent as done after 800 ms
+  of quiet, so the music never restarts in the middle of a sentence.
+- **Moving on**: if the agent stops talking after a question closes without calling
+  `next_question`, it gets a `SUITE` message after 3 s; if the game is still stuck 8 s later,
+  the host screen calls `next_question` itself.
+- **Scoring**: 1 point for the artist, 1 point for the title, 3 for both. The agent passes
+  `artist` and `title` to `submit_verdict`; the host has 🎤 Artiste (`A`) and 🎵 Titre (`S`)
+  buttons, and ✅ Correct means both.
+
 ## How it works
 
 ```mermaid
@@ -131,7 +159,7 @@ earlier buzz is "too early" (the phone says so) and does not count.
 | Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
 | Countdown | Started by the agent's `start_timer` tool once it has read the question; 20 s to buzz |
 | No buzz | The question closes when the 20 s run out |
-| Answer window | The agent says the player's name; when it stops talking the mic opens for 8 s. Only what is said within those 8 s counts: an answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
+| Answer window | The mic opens as soon as the player buzzes, for 8 s: they answer straight away, without waiting for the host. As soon as their answer is transcribed, the mic closes and the countdown stops (only the first answer counts). An answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
 ## Design choices
@@ -154,16 +182,20 @@ periodic pings (the socket already answers `ping` with `pong`), then arbitrate o
 
 The host computer's mic hears the whole room, so it is **muted by default** while the agent
 reads and while players think. It opens only in the lobby, at the end, and for the player
-who has the hand. Even then, it waits for the agent: after a buzz the agent only says the
-player's name ("Léa ?"), and the host screen opens the mic (and starts the 8 s answer window)
-once the agent stops talking, so the player never answers over the host. The phone shows
-"C'EST TOI" and then "PARLE !", and a banner on the TV shows "🎙️ À l'écoute de Léa".
+who has the hand, as soon as they buzz: the phone vibrates and shows "PARLE !", the TV shows
+"🎙️ À l'écoute de Léa", and the player answers right away. The agent is told with a
+contextual update (`BUZZ`), which does not make it talk over the player. When the answer is
+transcribed, the mic closes, the countdown stops, and the agent judges it. If the agent has
+not reacted 8 s later (or judged 12 s later), the host screen sends it the transcript with an
+explicit `JUGE` message, so a quiet agent never stalls the game. Anything the agent says while
+a player is answering is late by definition (a reaction to an earlier message), so its voice
+is muted until the answer is in.
 
-When the 8 s run out, the mic is muted at once, so nothing said afterwards reaches the agent.
-The transcript of the sentence that was cut off arrives a moment later, though, so the host
-screen waits 2.5 s, then sends the agent `FIN_DU_TEMPS` with everything the player said in
-time, and asks it to judge the answer in there and ignore the chatter around it. If the
-agent judges on its own before that, the message is not sent.
+When the 8 s run out, the mic stays open 1.5 s more before closing. In WebRTC, muting the
+mic stops sending audio altogether, and cutting a player mid-sentence left ElevenLabs waiting
+for the end of their turn (their answer was transcribed 9 s late in a live game). If no answer
+has been transcribed 2.5 s after the time-up, the agent gets `FIN_DU_TEMPS` and judges what
+it heard.
 
 ### Starting the countdown
 

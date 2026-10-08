@@ -31,9 +31,11 @@ from fastapi import APIRouter, Header, HTTPException, Request, WebSocket, WebSoc
 from fastapi.responses import FileResponse, Response
 
 from app.config import settings
+from app.deezer import prepare_song_deck
 from app.elevenlabs import ElevenLabsError, get_conversation_token
 from app.room import Room, room_manager, run_safely
 from app.models import CreateRoomRequest, CreateRoomResponse
+from app.questions import load_songs
 
 logger = logging.getLogger(__name__)
 
@@ -41,23 +43,25 @@ router = APIRouter()
 
 PAGES_DIR = Path(__file__).resolve().parents[1] / "static"
 MAX_WS_MESSAGE_CHARS = 4096
+# Pages and their scripts change together: make browsers revalidate them on every load.
+NO_CACHE = {"Cache-Control": "no-cache"}
 
 
 # ------------------------------------------------------------------- pages
 
 @router.get("/", include_in_schema=False)
 def landing_page():
-    return FileResponse(PAGES_DIR / "index.html")
+    return FileResponse(PAGES_DIR / "index.html", headers=NO_CACHE)
 
 
 @router.get("/host/{code}", include_in_schema=False)
 def host_page(code: str):
-    return FileResponse(PAGES_DIR / "host.html")
+    return FileResponse(PAGES_DIR / "host.html", headers=NO_CACHE)
 
 
 @router.get("/play/{code}", include_in_schema=False)
 def play_page(code: str):
-    return FileResponse(PAGES_DIR / "play.html")
+    return FileResponse(PAGES_DIR / "play.html", headers=NO_CACHE)
 
 
 # --------------------------------------------------------------------- API
@@ -89,8 +93,14 @@ def _check_host_key(room: Room, key: str | None) -> None:
 
 @router.post("/api/rooms", response_model=CreateRoomResponse)
 async def create_room(body: CreateRoomRequest, request: Request):
+    songs = None
+    if body.mode == "blindtest":
+        # Song previews come from Deezer and expire: look them up now, for this game only.
+        songs = await prepare_song_deck(list(load_songs()), body.total_questions)
+        if not songs:
+            raise HTTPException(status_code=502, detail="Impossible de récupérer les extraits chez Deezer")
     try:
-        room = room_manager.create(body.total_questions)
+        room = room_manager.create(len(songs) if songs else body.total_questions, songs)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Too many open rooms, try again later")
     base = _public_base_url(request)
@@ -109,6 +119,7 @@ async def room_summary(code: str, request: Request):
         "code": room.code,
         "phase": room.game.phase.value,
         "playerCount": len(room.game.players),
+        "mode": room.game.mode,
         "joinUrl": _join_url(request, room.code),
         "agentConfigured": bool(settings.elevenlabs_agent_id),
     }

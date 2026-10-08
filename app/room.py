@@ -15,6 +15,7 @@ from typing import Any, Awaitable, Callable
 from fastapi import WebSocket
 
 from app.game import BuzzResult, Event, Game, GameError, GameSettings
+from app.models import Question
 from app.questions import load_questions
 
 logger = logging.getLogger(__name__)
@@ -124,14 +125,16 @@ class Room:
             "next_question": lambda: self.game.next_question(now, force=_as_bool(params.get("force"))),
             "submit_verdict": lambda: self.game.submit_verdict(
                 str(params.get("playerId") or self.game.answering or ""),
-                _as_bool(params.get("correct")),
+                _optional_bool(params.get("correct")),
                 now,
                 by=str(params.get("by", "agent")),
+                artist=_optional_bool(params.get("artist")),
+                title=_optional_bool(params.get("title")),
             ),
             "reveal_answer": lambda: (self.game.reveal_answer(), [{"type": "answer_revealed"}]),
             "get_scores": lambda: (self.game.scores_payload(), []),
             "start_timer": lambda: ({"ok": True}, self.game.start_timer(now)),
-            "open_floor": lambda: ({"ok": True}, self.game.open_floor(now)),
+            "answer_heard": lambda: ({"ok": True}, self.game.answer_heard(now)),
             "pause": lambda: ({"ok": True}, self.game.pause(now)),
             "resume": lambda: ({"ok": True}, self.game.resume(now)),
         }
@@ -168,6 +171,10 @@ class Room:
             logger.debug("Quiz room %s: send failed", self.code)
 
 
+def _optional_bool(value: Any) -> bool | None:
+    return None if value is None else _as_bool(value)
+
+
 def _as_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("true", "1", "yes", "oui", "vrai", "correct")
@@ -175,19 +182,18 @@ def _as_bool(value: Any) -> bool:
 
 
 class RoomManager:
-    def __init__(self, clock: Clock = time.perf_counter, game_factory: Callable[[int], Game] | None = None):
+    def __init__(self, clock: Clock = time.perf_counter):
         self.clock = clock
         self.rooms: dict[str, Room] = {}
-        self._game_factory = game_factory or (
-            lambda total: Game(list(load_questions()), GameSettings(total_questions=total))
-        )
 
-    def create(self, total_questions: int) -> Room:
+    def create(self, total_questions: int, questions: list[Question] | None = None) -> Room:
+        """Creates a room. `questions` is the pool to draw from (default: the quiz bank)."""
         self.purge_idle()
         if len(self.rooms) >= MAX_ROOMS:
             raise RuntimeError("Too many open rooms")
         code = self._new_code()
-        room = Room(code, self._game_factory(total_questions), clock=self.clock)
+        pool = list(questions) if questions is not None else list(load_questions())
+        room = Room(code, Game(pool, GameSettings(total_questions=total_questions)), clock=self.clock)
         self.rooms[code] = room
         room.start()
         return room

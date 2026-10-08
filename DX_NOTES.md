@@ -88,8 +88,20 @@ package? Everything that depends on a live voice session is listed at the end un
 1. **The agent talked over the player.** After a buzz, the agent said "Kelly, on t'écoute !"
    while the mic was already open, so the player answered over the agent and the
    transcription was garbled. In a voice app with external turn triggers, *when* to open
-   the mic is the app's job. The fix: the agent only says the name, and the host screen opens
-   the mic on the agent's next speaking → listening transition (with timeouts).
+   the mic is the app's job. First fix: the agent only says the name, and the host screen
+   opens the mic on the agent's next speaking → listening transition. Players found waiting
+   for their name too slow, so the final design keeps the agent out of the loop: the mic
+   opens on the buzz and the agent is told with `sendContextualUpdate` (which does not trigger
+   a reply).
+3. **A silent agent stalls the game.** The first version of that told the agent "ne dis RIEN"
+   at the buzz and muted its voice until the player's transcript arrived. In the live game,
+   the player answered and nothing happened: the agent never judged. Either instruction can
+   cause it (an LLM told to stay silent may stay silent on the next turn too), and nothing in
+   the SDK says whether a user turn after a contextual update is guaranteed to get a reply.
+   The fix: no "say nothing" wording, no muting; the host closes the mic as soon as the
+   answer is transcribed and, if the agent has not reacted 2.5 s later, sends the transcript
+   with an explicit "judge now" message. *Suggestion:* document how contextual updates and
+   the following user turn interact.
 2. **`onModeChange` is not "the agent finished reading".** The agent often comments on the
    previous answer, calls `next_question`, then reads the question, sometimes as separate
    turns with a listening gap in between. Using the first speaking → listening transition
@@ -101,17 +113,50 @@ package? Everything that depends on a live voice session is listed at the end un
    `listening`. The transcript matching stays as a fallback when the agent forgets the tool. *Suggestion:* expose turn boundaries tied to tool calls (for example "the turn that
    follows this tool result has finished playing"), so apps don't have to match transcripts.
 
+4. **`setMicMuted(true)` stops the audio stream in WebRTC.** It calls LiveKit's
+   `track.mute()`, which stops sending packets instead of sending silence. Muting a player
+   mid-sentence therefore hid the end of their turn from the server: the transcript of
+   "C'est Dalida, « Laissez-moi danser »" arrived 9 s after the mute, after the game had moved
+   on. The fix: keep the mic open 1.5 s after the deadline. *Suggestion:* document this, or
+   offer a "mute but keep the turn detection fed with silence" mode.
+5. **Latency decides the game feel.** In the same game, the agent replied 6 to 10 s after a
+   message, so its reactions landed during the next player's answer. Thinking is likely the
+   main cost: `reasoning_effort` is now `minimal` in the config. The app also mutes any agent
+   speech while a player is answering, and gives the agent 15 s to judge once the answer is
+   in. *Suggestion:* surface per-turn latency (ASR, LLM, TTS) in the conversation metadata,
+   so developers can see where the seconds go.
+6. **Tool calls run before the audio they come with.** The agent generated "Chanson numéro
+   un !" and the `start_timer` call together; the call ran at once and the audio started
+   2.3 s later. Waiting for `listening` was not enough, since the agent was not speaking yet:
+   the host now waits up to 3 s for the speech to start, then for it to end.
+
+7. **The app cannot end a user turn.** Once the answer is out, the game wants it judged
+   right away, but the transcript (and so the agent's reply) only comes when the server
+   decides the turn is over. With a patient turn setting, a short answer was transcribed
+   ~9 s after the buzz. Muting the mic does not help in WebRTC (see 4). The knobs are
+   `turn_eagerness: eager` and `speculative_turn`. *Suggestion:* a client event such as
+   `conversation.endUserTurn()` for apps that know when the user is done (push-to-talk,
+   buzzers, kiosks).
+
+8. **`onModeChange` flickers inside a sentence.** With expression tags (`[sarcastic] [laughs]
+   Oh Kelly, on a…`), the SDK briefly reported `listening` after "on a"; the host resumed the
+   song and muted the rest of the sentence. The host now waits for 800 ms of `listening`
+   before treating the agent as done. *Suggestion:* an "agent turn finished" event, distinct
+   from momentary audio gaps.
+9. **The agent waits instead of chaining.** After a correct answer, the agent reacted and then
+   waited for the players instead of calling `next_question`; two turn timeouts later (empty
+   "..." user turns) it re-engaged, about 40 s of dead air in total. The host now nudges it
+   (`SUITE`) after 3 s of silence and moves on by itself if needed.
+
 ## To verify live
 
 Measured on real games with the debug panel (`D` on the host screen, which logs WebSocket
-events and tool calls with timestamps). The "BUZZ via contextual update" switch in that
-panel compares both methods.
+events and tool calls with timestamps).
 
 | Question | Result |
 |---|---|
-| `sendUserMessage("BUZZ: …")`: delay from buzz to the agent's first audio | _to measure_ |
-| `sendContextualUpdate("BUZZ: …")`: does the agent react without a user turn? | _to measure_ |
-| Does `sendUserMessage` cut an agent that is still reading the question? | _to measure_ |
+| `sendContextualUpdate("BUZZ: …")` then the player's speech: does the agent use the BUZZ context (right `playerId`) when it judges? | _to measure_ |
+| Does the agent stay silent after a contextual update (the voice is muted anyway until the answer)? | _to measure_ |
 | With the mic muted for 20 s, does the agent re-engage or end the call? | _to measure_ |
 | Are `[sarcastic]` / `[laughs]` tags rendered in French with `eleven_v3_conversational`? | _to measure_ |
 | Does `create_agent.py` work against the live API as written? | _to run_ |

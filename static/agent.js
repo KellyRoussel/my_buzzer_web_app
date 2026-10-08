@@ -45,6 +45,7 @@ export class QuizAgent {
     this.mode = "listening";
     this.micMuted = null;
     this.paused = false;
+    this.silenced = false;
     this.ducked = null;
   }
 
@@ -155,21 +156,33 @@ export class QuizAgent {
    */
   duck() {
     if (!this.connected || this.mode !== "speaking" || this.paused) return;
-    this.conversation.setVolume({ volume: 0 });
     clearTimeout(this.ducked);
     this.ducked = setTimeout(() => this.unduck(), DUCK_SAFETY_MS);
+    this.applyVolume();
     this.onLog("agent", "ducked (agent was speaking during buzz)");
   }
 
   unduck() {
     clearTimeout(this.ducked);
     this.ducked = null;
-    if (this.connected && !this.paused) this.conversation.setVolume({ volume: 1 });
+    this.applyVolume();
   }
 
   setPaused(paused) {
     this.paused = paused;
+    this.applyVolume();
+  }
+
+  /** Mutes the agent's voice while something more important is heard (a song, a player's answer). */
+  setSilenced(silenced) {
+    if (this.silenced === silenced) return;
+    this.silenced = silenced;
+    this.applyVolume();
+    this.onLog("agent", silenced ? "voice muted" : "voice back");
+  }
+
+  applyVolume() {
     if (!this.connected) return;
-    this.conversation.setVolume({ volume: paused ? 0 : 1 });
+    this.conversation.setVolume({ volume: this.paused || this.silenced || this.ducked ? 0 : 1 });
   }
 }
