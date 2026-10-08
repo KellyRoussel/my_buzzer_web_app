@@ -138,6 +138,16 @@ package? Everything that depends on a live voice session is listed at the end un
    `conversation.endUserTurn()` for apps that know when the user is done (push-to-talk,
    buzzers, kiosks).
 
+8. **`onModeChange` flickers inside a sentence.** With expression tags (`[sarcastic] [laughs]
+   Oh Kelly, on a…`), the SDK briefly reported `listening` after "on a"; the host resumed the
+   song and muted the rest of the sentence. The host now waits for 800 ms of `listening`
+   before treating the agent as done. *Suggestion:* an "agent turn finished" event, distinct
+   from momentary audio gaps.
+9. **The agent waits instead of chaining.** After a correct answer, the agent reacted and then
+   waited for the players instead of calling `next_question`; two turn timeouts later (empty
+   "..." user turns) it re-engaged, about 40 s of dead air in total. The host now nudges it
+   (`SUITE`) after 3 s of silence and moves on by itself if needed.
+
 ## To verify live
 
 Measured on real games with the debug panel (`D` on the host screen, which logs WebSocket

@@ -39,10 +39,10 @@ Tu es Max, l'animateur d'un quiz entre amis, en français. Ton style : animateur
 
 Tu ne connais l'état du jeu QUE via tes outils. N'invente jamais un score, une question ou une réponse.
 
-Messages de l'écran de jeu : certains messages ne viennent pas d'un humain mais de l'application. Ils commencent par un mot-clé en majuscules (DEPART, BUZZ, JUGE, TIMEOUT, FIN_DU_TEMPS, TROP_LENT, VERDICT_HOTE, REPONSE_HOTE, QUESTION_HOTE, FIN, JOUEURS, TAQUINERIE, INFO). Suis leurs instructions immédiatement et ne les lis jamais à voix haute.
+Messages de l'écran de jeu : certains messages ne viennent pas d'un humain mais de l'application. Ils commencent par un mot-clé en majuscules (DEPART, BUZZ, JUGE, SUITE, TIMEOUT, FIN_DU_TEMPS, TROP_LENT, VERDICT_HOTE, REPONSE_HOTE, QUESTION_HOTE, FIN, JOUEURS, TAQUINERIE, INFO). Suis leurs instructions immédiatement et ne les lis jamais à voix haute.
 
 Déroulé :
-1. Lobby : appelle get_game_state et accueille les joueurs par leur pseudo. Une vanne sur un pseudo si elle est facile, pas plus. Quand l'hôte demande de lancer la partie (message DEPART ou à voix haute), appelle start_game : il te donne la première question.
+1. Lobby : appelle get_game_state et accueille les joueurs par leur pseudo en une phrase. Une vanne sur un pseudo si elle est facile, pas plus. Dès que quelqu'un dit qu'on est prêts ou de lancer (« go », « on est prêts », « vas-y »), ou au message DEPART, appelle start_game immédiatement, sans poser d'autre question : il te donne la première question.
 2. Chaque question : fais tes commentaires sur la question précédente AVANT d'appeler next_question. Une fois next_question appelée, ne dis plus que le numéro, la catégorie et la question, lue clairement et exactement. Dès que tu as fini de la lire, appelle start_timer : c'est lui qui lance le chrono et ouvre les buzzers (personne ne peut buzzer avant). Puis TAIS-TOI. Pas de relance, pas d'indice : tu attends un message BUZZ ou TIMEOUT.
 3. BUZZ : tu reçois une information BUZZ. Le micro du joueur est déjà ouvert et il répond directement, sans que tu l'appelles. Dès que tu entends sa réponse, juge-la. Juge-la avec indulgence en la comparant aux acceptedAnswers : prononciation approximative, article manquant, réponse partielle mais non ambiguë = correct. Le joueur peut enchaîner sur du blabla après sa réponse (« Canberra, c'est trop facile ») : ignore-le et juge la réponse. S'il propose plusieurs réponses, seule la première compte. Seul ce qui est dit avant la fin de son temps compte : à la fin du temps, son micro est coupé et tu reçois FIN_DU_TEMPS avec ce qu'il a dit à temps. Appelle ensuite submit_verdict avec le playerId reçu, tout de suite, sans attendre d'autre signal. Si tu reçois JUGE, c'est que tu as oublié : juge immédiatement.
    - Correct : félicite en une phrase (avec une pointe d'ironie si la question était facile), puis appelle next_question.
@@ -58,6 +58,7 @@ Règles :
 - Ne parle jamais pendant qu'un joueur répond : pas de « on t'écoute », pas de prénom, pas de commentaire, pas de relance.
 - Deux phrases maximum entre deux actions : le rythme fait le fun.
 - Suis le champ nextStep des résultats d'outils.
+- Après un verdict qui clôt la question, n'attends jamais que les joueurs parlent : réagis en une phrase et appelle next_question dans la même réponse. Si tu reçois SUITE, c'est que tu as oublié : enchaîne immédiatement.
 - Si un outil renvoie une erreur, lis son message et corrige-toi (au besoin, appelle get_game_state).
 ```
 
@@ -90,6 +91,7 @@ Each starts with an upper-case keyword that the prompt tells the agent never to 
 | `BUZZ` | `sendContextualUpdate` (does not make the agent talk) | first buzz of a question. The player's mic opens at once and they answer straight away; the agent judges what it hears |
 | `JUGE` | `sendUserMessage` | the player's answer was transcribed but the agent has not reacted after 8 s (or judged after 12 s): it gets the transcript and is asked to judge |
 | `TIMEOUT` | `sendUserMessage` | nobody buzzed within 20 s |
+| `SUITE` | `sendUserMessage` | the question is closed but the agent has stopped talking without calling `next_question` (3 s of silence, 8 s after the verdict at most). If the game is still stuck 8 s later, the host screen calls `next_question` itself |
 | `FIN_DU_TEMPS` | `sendUserMessage` | the 8 s answer window closed without a verdict. Sent 2.5 s later (once the transcript of the cut-off sentence has arrived), with everything the player said in time |
 | `TROP_LENT` | `sendUserMessage` | no verdict 20 s after the buzz: counted wrong by the server |
 | `VERDICT_HOTE`, `REPONSE_HOTE`, `QUESTION_HOTE`, `FIN` | `sendUserMessage` | the host used a fallback button |
@@ -97,9 +99,10 @@ Each starts with an upper-case keyword that the prompt tells the agent never to 
 
 ## Settings worth tuning on real games
 
-- **Turn timeout / silence handling**: while the mic is muted the agent hears silence. If it
-  re-engages ("Vous êtes là ?") during the 20 s buzz window, raise the turn timeout in the
-  agent's advanced settings, and make sure silence does not end the call.
+- **Turn timeout / silence handling**: while the mic is muted the agent hears silence, and
+  every turn timeout produces an empty user turn ("..." in the debug panel) that makes the
+  agent re-engage ("On t'attend !"), sometimes over the music. Raise the turn timeout to the
+  maximum in the agent's advanced settings, and make sure silence does not end the call.
 - **Turn eagerness: `eager`** (Advanced → turn taking), and **speculative turn** on. The agent
   can only judge once ElevenLabs has decided the player's turn is over and sent the
   transcript; with a patient setting, a short answer was transcribed ~9 s after the buzz, so

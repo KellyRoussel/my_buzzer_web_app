@@ -25,7 +25,18 @@ const MIC_TAIL_MS = 1500;
 // Tool calls made while the connection to the game server is down wait this long for it.
 const RECONNECT_WAIT_MS = 8000;
 // The agent read the question but forgot start_timer: start it after this much silence.
-const TIMER_FALLBACK_MS = 4000;
+const TIMER_FALLBACK_MS = 1500;
+// The SDK reports "listening" during short pauses inside one sentence (between expression tags,
+// for instance). Only treat the agent as done once it has been quiet this long.
+const AGENT_DONE_MS = 800;
+// After the answer, the song plays under the agent's reaction, then stops shortly after.
+const REVEAL_OUTRO_MS = 1500;
+const REVEAL_MUSIC_MAX_MS = 12000;
+// The agent must chain next_question after a question closes. If it is quiet this long in
+// REVEAL, it gets a SUITE nudge; if the game is still stuck after that, the host moves on.
+const ADVANCE_NUDGE_MS = 3000;
+const ADVANCE_FIRST_NUDGE_MS = 8000; // right after the verdict: leave time for the agent's reaction
+const ADVANCE_FORCE_MS = 8000;
 // When the answer window closes mid-sentence, the mic is muted at once (nothing said later is
 // heard) but the transcript of what was said in time arrives a moment later: wait for it
 // before asking the agent to judge, unless the agent judges on its own first.
@@ -46,6 +57,12 @@ let timerRequest = null; // start_timer called while the agent was still talking
 let answerHeard = []; // transcripts of the player's answer, captured while their mic was open
 let timeUpTimer = null;
 let micTail = false;
+let agentDoneTimer = null;
+let agentTalking = false; // speaking, or in a short pause inside a sentence
+let revealMusicOver = false;
+let revealMusicTimers = [];
+let advanceTimers = [];
+let previousPhase = null;
 let reconnectWaiters = [];
 let judgeNudges = [];
 let timerFallback = null;
@@ -176,7 +193,8 @@ const agent = new QuizAgent({
     get_game_state: () => action("get_game_state"),
     start_game: () => action("start_game"),
     next_question: () => action("next_question"),
-    submit_verdict: ({ playerId, correct }) => action("submit_verdict", { playerId, correct, by: "agent" }),
+    submit_verdict: ({ playerId, correct, artist, title }) =>
+      action("submit_verdict", { playerId, correct, artist, title, by: "agent" }),
     start_timer: () => requestTimerFromAgent(),
     reveal_answer: () => action("reveal_answer"),
     get_scores: () => action("get_scores"),
@@ -188,21 +206,25 @@ const agent = new QuizAgent({
   },
   onMode: (mode, previous) => {
     renderAgent();
+    if (mode === "speaking") agentTalking = true;
     if (state) syncClip(); // reveal music ducks under the agent's voice
-    if (musicHold && previous === "speaking" && mode === "listening") releaseMusic("agent done");
     if (mode === "speaking") {
+      clearTimeout(agentDoneTimer); // a pause inside a sentence, not the end of it
       clearTimerTimeouts({ keepRequest: true });
+      clearAdvanceTimers();
       if (timerRequest) { // the announcement started playing: now wait for its end
         clearTimeout(timerRequest);
         timerRequest = setTimeout(() => startTimer("agent still talking after 15 s"), TIMER_DEFER_MAX_MS);
       }
+      if (musicHold) { // the relaunch line started: let it finish, whatever the hold timeout
+        clearTimeout(musicHold);
+        musicHold = setTimeout(() => releaseMusic("agent still talking after 10 s"), 10000);
+      }
     }
-    if (previous !== "speaking" || mode !== "listening") return;
-    if (state?.phase !== "QUESTION_READING") return;
-    // start_timer was called during the question: the audio has now finished playing.
-    if (timerRequest) startTimer("agent finished speaking");
-    // The agent read the question but did not call start_timer: start it after a short silence.
-    else if (questionSpoken) timerFallback = setTimeout(() => startTimer("fallback, no start_timer"), TIMER_FALLBACK_MS);
+    if (previous === "speaking" && mode === "listening") {
+      clearTimeout(agentDoneTimer);
+      agentDoneTimer = setTimeout(onAgentDone, AGENT_DONE_MS);
+    }
   },
   onUserText: (text) => {
     // The mic is only open during the answer window, so this is what the player said in time.
@@ -278,6 +300,56 @@ function startTimer(reason) {
   if (state?.phase !== "QUESTION_READING") return;
   log("agent", `timer started (${reason})`);
   action("start_timer").catch(() => {});
+}
+
+/** The agent has finished what it was saying (not just a pause between two words). */
+function onAgentDone() {
+  if (!state || agent.mode === "speaking") return;
+  agentTalking = false;
+  syncClip(); // reveal music back up
+  if (musicHold) releaseMusic("agent done");
+  if (state.phase === "QUESTION_READING") {
+    // start_timer was called during the question: the audio has now finished playing.
+    if (timerRequest) startTimer("agent finished speaking");
+    // The agent read the question but did not call start_timer: start it after a short silence.
+    else if (questionSpoken) timerFallback = setTimeout(() => startTimer("fallback, no start_timer"), TIMER_FALLBACK_MS);
+  }
+  if (state.phase === "REVEAL") {
+    stopRevealMusicSoon(REVEAL_OUTRO_MS);
+    scheduleAdvance();
+  }
+}
+
+function stopRevealMusicSoon(delay) {
+  revealMusicTimers.push(setTimeout(() => { revealMusicOver = true; if (state) syncClip(); }, delay));
+}
+
+/** After a question closes, make sure the game moves on even if the agent forgets to. */
+function scheduleAdvance(delay = ADVANCE_NUDGE_MS) {
+  clearAdvanceTimers();
+  if (!agent.connected || state?.paused) return;
+  const question = state.questionNumber;
+  const stillStuck = () => state?.phase === "REVEAL" && state.questionNumber === question && !state.paused;
+  advanceTimers.push(setTimeout(() => {
+    if (!stillStuck()) return;
+    log("agent", "agent has not moved on: nudging it");
+    tellAgent("SUITE: la question est terminée. Si la bonne réponse n'a pas été dite, appelle reveal_answer et "
+      + "annonce-la en une phrase ; puis appelle next_question tout de suite, sans attendre les joueurs.");
+    advanceTimers.push(setTimeout(async () => {
+      if (!stillStuck()) return;
+      log("agent", "still stuck: the host moves on");
+      try {
+        announceQuestion(await action("next_question"), "on passe à la suite");
+      } catch (err) {
+        log("error", err.message);
+      }
+    }, ADVANCE_FORCE_MS));
+  }, delay));
+}
+
+function clearAdvanceTimers() {
+  advanceTimers.forEach(clearTimeout);
+  advanceTimers = [];
 }
 
 /** The room microphone is open only when someone is expected to talk to the agent. */
@@ -524,6 +596,21 @@ document.addEventListener("keydown", (event) => {
 
 // ------------------------------------------------------------------ render
 
+function onPhaseChange(from, to) {
+  if (to !== "REVEAL") clearAdvanceTimers();
+  if (to === "QUESTION_READING") {
+    revealMusicOver = false;
+    revealMusicTimers.forEach(clearTimeout);
+    revealMusicTimers = [];
+  }
+  if (to === "REVEAL") {
+    stopRevealMusicSoon(REVEAL_MUSIC_MAX_MS);
+    // The agent may judge and never speak again: start the watchdog now, it is reset each time
+    // the agent finishes a sentence.
+    scheduleAdvance(ADVANCE_FIRST_NUDGE_MS);
+  }
+}
+
 function isSongRound() {
   return state?.question?.kind === "song";
 }
@@ -547,14 +634,14 @@ function syncClip() {
     else audio.removeAttribute("src");
   }
   const guessing = Boolean(url) && state.phase === "BUZZ_OPEN" && !state.paused && !musicHold;
-  const reveal = Boolean(url) && state.phase === "REVEAL" && Boolean(state.answer) && !state.paused;
+  const reveal = Boolean(url) && state.phase === "REVEAL" && Boolean(state.answer) && !state.paused && !revealMusicOver;
   // The player who buzzed is answering: nothing from the agent until their answer is heard.
   // A player is answering: anything the agent says now is late (a reaction to an earlier
   // message) and would cover the answer. Its voice comes back with the answer or the time-up.
   const playerAnswering = state.phase === "ANSWERING" && answerHeard.length === 0 && !answerTimeUp;
   agent.setSilenced(guessing || playerAnswering);
   if (!url) return;
-  audio.volume = !reveal ? 1 : agent.connected && agent.mode === "speaking" ? REVEAL_DUCKED_VOLUME : REVEAL_MUSIC_VOLUME;
+  audio.volume = !reveal ? 1 : agent.connected && agentTalking ? REVEAL_DUCKED_VOLUME : REVEAL_MUSIC_VOLUME;
   if ((guessing || reveal) && audio.paused) audio.play().catch((err) => log("error", `clip: ${err.message}`));
   if (!guessing && !reveal && !audio.paused) audio.pause();
 }
@@ -575,6 +662,8 @@ function releaseMusic(reason) {
 
 function onState(next) {
   state = next;
+  if (state.phase !== previousPhase) onPhaseChange(previousPhase, state.phase);
+  previousPhase = state.phase;
   syncClip();
   if (state.phase !== "QUESTION_READING") clearTimerTimeouts();
   deadlineAt = state.deadlineIn != null ? performance.now() / 1000 + state.deadlineIn : null;

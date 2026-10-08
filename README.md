@@ -102,9 +102,15 @@ extract of a French song, played by the host screen (the agent never sings or hu
   when it stops talking, with 25 s to buzz. While the song plays before the answer, the agent's
   voice is muted on the host screen (the song has priority, whatever the LLM decides to say).
   A buzz pauses the music and opens the player's mic at once; after a wrong answer, the music waits for the agent to relaunch the
-  others (4 s at most) and resumes. Once the answer is out, the TV shows the album cover and
-  the song keeps playing in the background, ducked to 12 % whenever the agent talks (35 %
-  otherwise) so the voice stays on top.
+  others and resumes. Once the answer is out, the TV shows the album cover and the song plays
+  under the agent's reaction (ducked to 12 % while it talks, so the voice stays on top), then
+  stops 1.5 s after the agent is done (12 s at most).
+- **Pauses inside a sentence**: the SDK reports "listening" during short pauses within one
+  sentence (between expression tags). The host only treats the agent as done after 800 ms
+  of quiet, so the music never restarts in the middle of a sentence.
+- **Moving on**: if the agent stops talking after a question closes without calling
+  `next_question`, it gets a `SUITE` message after 3 s; if the game is still stuck 8 s later,
+  the host screen calls `next_question` itself.
 - **Scoring**: 1 point for the artist, 1 point for the title, 3 for both. The agent passes
   `artist` and `title` to `submit_verdict`; the host has 🎤 Artiste (`A`) and 🎵 Titre (`S`)
   buttons, and ✅ Correct means both.
