@@ -255,11 +255,15 @@ def test_buzz_opens_the_answer_window_at_once():
 
 
 def test_answer_heard_stops_the_answer_countdown():
-    game = started_game(answer_window_s=8, answer_hard_timeout_s=20)
+    game = started_game(answer_window_s=8, answer_hard_timeout_s=20, judge_timeout_s=15)
     game.buzz("p0", 10)
     events = game.answer_heard(12)
     assert events[0]["type"] == "answer_heard"
     assert game.deadline_kind == "answer_hard" and game.deadline == pytest.approx(30)
+    late = started_game(answer_window_s=8, answer_hard_timeout_s=20, judge_timeout_s=15)
+    late.buzz("p0", 10)
+    late.answer_heard(25)  # transcript arrived late: still 15 s to judge
+    assert late.deadline == pytest.approx(40)
     assert game.player_state("p0", 12)["answered"] is True
     assert game.answer_heard(13) == []          # idempotent
     assert game.tick(18) == []                  # no "time up" once the answer is in
@@ -271,7 +275,7 @@ def test_answer_heard_stops_the_answer_countdown():
 
 
 def test_answer_window_then_hard_timeout_counts_wrong():
-    game = started_game()
+    game = started_game(answer_hard_timeout_s=20)
     game.buzz("p0", 10)
     events = game.tick(18)
     assert events == [{"type": "answer_time_up", "playerId": "p0", "name": "Joueur 0"}]

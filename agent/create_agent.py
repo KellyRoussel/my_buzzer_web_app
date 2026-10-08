@@ -44,7 +44,12 @@ def agent_payload(config: dict, tool_ids: list[str], voice_id: str | None) -> di
             "agent": {
                 "first_message": config["first_message"],
                 "language": config["language"],
-                "prompt": {"prompt": config["prompt"], "llm": config["llm"], "tool_ids": tool_ids},
+                "prompt": {
+                    "prompt": config["prompt"],
+                    "llm": config["llm"],
+                    **({"reasoning_effort": config["reasoning_effort"]} if config.get("reasoning_effort") else {}),
+                    "tool_ids": tool_ids,
+                },
             },
             "tts": tts,
             "conversation": {"max_duration_seconds": config["max_duration_seconds"]},

@@ -54,6 +54,9 @@ export function connect(url, { onOpen, onMessage, onStatus }) {
       }
       return false;
     },
+    isOpen() {
+      return Boolean(ws && ws.readyState === WebSocket.OPEN);
+    },
     close() {
       stopped = true;
       ws?.close();

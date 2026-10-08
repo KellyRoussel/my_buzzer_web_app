@@ -180,14 +180,16 @@ who has the hand, as soon as they buzz: the phone vibrates and shows "PARLE !", 
 "🎙️ À l'écoute de Léa", and the player answers right away. The agent is told with a
 contextual update (`BUZZ`), which does not make it talk over the player. When the answer is
 transcribed, the mic closes, the countdown stops, and the agent judges it. If the agent has
-not reacted 2.5 s later (or judged 7 s later), the host screen sends it the transcript with
-an explicit `JUGE` message, so a quiet agent never stalls the game.
+not reacted 8 s later (or judged 12 s later), the host screen sends it the transcript with an
+explicit `JUGE` message, so a quiet agent never stalls the game. Anything the agent says while
+a player is answering is late by definition (a reaction to an earlier message), so its voice
+is muted until the answer is in.
 
-When the 8 s run out, the mic is muted at once, so nothing said afterwards reaches the agent.
-The transcript of the sentence that was cut off arrives a moment later, though, so the host
-screen waits 2.5 s, then sends the agent `FIN_DU_TEMPS` with everything the player said in
-time, and asks it to judge the answer in there and ignore the chatter around it. If the
-agent judges on its own before that, the message is not sent.
+When the 8 s run out, the mic stays open 1.5 s more before closing. In WebRTC, muting the
+mic stops sending audio altogether, and cutting a player mid-sentence left ElevenLabs waiting
+for the end of their turn (their answer was transcribed 9 s late in a live game). If no answer
+has been transcribed 2.5 s after the time-up, the agent gets `FIN_DU_TEMPS` and judges what
+it heard.
 
 ### Starting the countdown
 

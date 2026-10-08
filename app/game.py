@@ -72,7 +72,10 @@ class GameSettings:
     # Microphone window given to the player who has the hand, from the moment they buzz.
     answer_window_s: float = 8.0
     # Safety net: if nobody submits a verdict, the answer is counted wrong.
-    answer_hard_timeout_s: float = 20.0
+    # Generous: a voice agent can take several seconds to judge (transcription + LLM + retries).
+    answer_hard_timeout_s: float = 30.0
+    # Once the answer is heard, the agent has at least this long to judge it.
+    judge_timeout_s: float = 15.0
     buzz_cooldown_s: float = 0.3
     # Rejected buzzes from a locked player before the agent is told to tease them.
     spam_tease_threshold: int = 3
@@ -246,7 +249,7 @@ class Game:
             return []
         self.answered = True
         remaining = self.answer_started_at + self.settings.answer_hard_timeout_s - now
-        self._set_deadline("answer_hard", now, max(remaining, self.settings.answer_window_s))
+        self._set_deadline("answer_hard", now, max(remaining, self.settings.judge_timeout_s))
         player = self.players[self.answering]
         return [{"type": "answer_heard", "playerId": player.id, "name": player.name}]
 
@@ -272,9 +275,9 @@ class Game:
         found = None
         if self.is_song:
             if artist is None and title is None:
-                if correct:
-                    raise GameError("Pour une chanson, indique artist et title (true ou false) au lieu de correct.")
-                artist = title = False
+                # The agent used the quiz form: "correct" means it found the whole song. Accepting it
+                # beats an error and a retry that can take longer than the time left to judge.
+                artist = title = bool(correct)
             found = {"artist": bool(artist), "title": bool(title)}
             points = SONG_POINTS[(found["artist"], found["title"])]
         else:

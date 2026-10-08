@@ -21,6 +21,7 @@ references them by id (`POST /v1/convai/agents/create`), and prints the
 |---|---|
 | Language | French (`fr`) |
 | LLM | `gemini-3.8-flash` (fast tool calls matter more than depth here; `gemini-2.5-flash` is deprecated) |
+| Reasoning effort | `minimal` (or the lowest the model offers). Thinking adds seconds before every reply, and the game's tool calls are trivial; in a live game, replies arriving 6–10 s late made the agent talk at the wrong moments |
 | Voice model | `eleven_v3_conversational`, expressive mode on (audio tags like `[laughs]`, `[sarcastic]`) |
 | Voice | An energetic French game-show voice. Pick one in the Voice Library and pass its id. |
 | Max conversation duration | 1800 s |
@@ -86,7 +87,7 @@ Each starts with an upper-case keyword that the prompt tells the agent never to 
 |---|---|---|
 | `DEPART` | `sendUserMessage` | the host clicks "Démarrer la partie" |
 | `BUZZ` | `sendContextualUpdate` (does not make the agent talk) | first buzz of a question. The player's mic opens at once and they answer straight away; the agent judges what it hears |
-| `JUGE` | `sendUserMessage` | the player's answer was transcribed but the agent has not reacted after 2.5 s (or judged after 7 s): it gets the transcript and is asked to judge |
+| `JUGE` | `sendUserMessage` | the player's answer was transcribed but the agent has not reacted after 8 s (or judged after 12 s): it gets the transcript and is asked to judge |
 | `TIMEOUT` | `sendUserMessage` | nobody buzzed within 20 s |
 | `FIN_DU_TEMPS` | `sendUserMessage` | the 8 s answer window closed without a verdict. Sent 2.5 s later (once the transcript of the cut-off sentence has arrived), with everything the player said in time |
 | `TROP_LENT` | `sendUserMessage` | no verdict 20 s after the buzz: counted wrong by the server |

@@ -78,10 +78,11 @@ def test_song_nothing_found_locks_the_player():
     assert game.phase == Phase.BUZZ_OPEN
 
 
-def test_song_plain_wrong_is_accepted_but_plain_correct_is_not():
+def test_song_plain_correct_counts_as_both_and_plain_wrong_as_nothing():
     game = buzzed(song_game())
-    with pytest.raises(GameError, match="artist et title"):
-        game.submit_verdict("p0", True, 3)
+    payload, _ = game.submit_verdict("p0", True, 3)
+    assert payload["points"] == 3 and game.players["p0"].score == 3
+    game = buzzed(song_game())
     game.submit_verdict("p0", False, 3)
     assert game.players["p0"].score == 0 and "p0" in game.locked
 

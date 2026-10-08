@@ -113,6 +113,23 @@ package? Everything that depends on a live voice session is listed at the end un
    `listening`. The transcript matching stays as a fallback when the agent forgets the tool. *Suggestion:* expose turn boundaries tied to tool calls (for example "the turn that
    follows this tool result has finished playing"), so apps don't have to match transcripts.
 
+4. **`setMicMuted(true)` stops the audio stream in WebRTC.** It calls LiveKit's
+   `track.mute()`, which stops sending packets instead of sending silence. Muting a player
+   mid-sentence therefore hid the end of their turn from the server: the transcript of
+   "C'est Dalida, « Laissez-moi danser »" arrived 9 s after the mute, after the game had moved
+   on. The fix: keep the mic open 1.5 s after the deadline. *Suggestion:* document this, or
+   offer a "mute but keep the turn detection fed with silence" mode.
+5. **Latency decides the game feel.** In the same game, the agent replied 6 to 10 s after a
+   message, so its reactions landed during the next player's answer. Thinking is likely the
+   main cost: `reasoning_effort` is now `minimal` in the config. The app also mutes any agent
+   speech while a player is answering, and gives the agent 15 s to judge once the answer is
+   in. *Suggestion:* surface per-turn latency (ASR, LLM, TTS) in the conversation metadata,
+   so developers can see where the seconds go.
+6. **Tool calls run before the audio they come with.** The agent generated "Chanson numéro
+   un !" and the `start_timer` call together; the call ran at once and the audio started
+   2.3 s later. Waiting for `listening` was not enough, since the agent was not speaking yet:
+   the host now waits up to 3 s for the speech to start, then for it to end.
+
 ## To verify live
 
 Measured on real games with the debug panel (`D` on the host screen, which logs WebSocket
