@@ -1,17 +1,18 @@
-# Quiz Host
+# Blind Test
 
-A party quiz with a voice host. An [ElevenLabs Agents](https://elevenlabs.io/docs/eleven-agents/overview)
-agent reads the questions out loud and teases the players, who buzz from their phones. The
-host then gives the floor to whoever buzzed first, judges the answer by ear and keeps score.
+A French-song blind test with a voice host. The TV plays 30-second song extracts; an
+[ElevenLabs Agents](https://elevenlabs.io/docs/eleven-agents/overview) agent, Max, announces
+each song and teases the players, who buzz from their phones. Max gives the floor to whoever
+buzzed first, judges the artist and the title by ear and keeps score.
 
-> 🎬 **Demo video:** _coming soon_ (5 questions, 3 phones, one TV).
+> 🎬 **Demo video:** _coming soon_ (5 songs, 3 phones, one TV).
 
 <!-- Replace the line above with a GIF or a video link once recorded. -->
 
 ## Quickstart
 
 You need Python 3.11+ and a browser. The voice host is optional: without an agent, the
-game runs in manual mode (you read the questions and judge with buttons).
+game runs in manual mode (the extracts start on their own and you judge with buttons).
 
 ```bash
 pip install -r requirements.txt
@@ -20,8 +21,8 @@ python agent/create_agent.py --voice-id <VOICE_ID>       # optional: creates the
 uvicorn app.main:app
 ```
 
-Open <http://localhost:8000> on the computer plugged into the TV and click **Ouvrir le plateau**.
-Players scan the QR code.
+Open <http://localhost:8000> on the computer plugged into the TV, pick a playlist and click
+**Ouvrir le plateau**. Players scan the QR code.
 
 **Real phones need HTTPS** (the host microphone and WebRTC require a secure context, and phones
 must reach your laptop). Use a tunnel:
@@ -66,7 +67,7 @@ Run every command from the repository root: `app/config.py` reads `.env` from th
    ```
 
 5. **Play on one computer.**
-   - Host screen: open <http://localhost:8000> and click **Ouvrir le plateau**.
+   - Host screen: open <http://localhost:8000>, pick a playlist and click **Ouvrir le plateau**.
    - Players: open `http://localhost:8000/play/<CODE>` in other tabs. Each tab is a separate
      player; buzz with a click or the space bar.
    - Click **🎙️ Lancer l'animateur** (the browser asks for the microphone), then **▶️ Démarrer la partie**.
@@ -87,13 +88,19 @@ Run every command from the repository root: `app/config.py` reads `.env` from th
    python -m pytest
    ```
 
-## Blind test mode
+## Songs and playlists
 
-Choose **Blind test : chansons françaises** when creating the room. Each round is a 30-second
-extract of a French song, played by the host screen (the agent never sings or hums).
+Each round is a 30-second extract of a French song, played by the host screen (the agent never
+sings or hums).
 
-- **Songs**: `data/songs.fr.json` lists 42 French hits, from Piaf to Aya Nakamura, with the
-  accepted spellings for the artist and the title. Edit it freely.
+- **Songs**: `data/songs.fr.json` lists about 280 French hits, from Piaf to Aya Nakamura, each
+  with its release year, optional tags (`classique`, `fete`, `rap`, `rock`) and the accepted
+  spellings for the artist and the title. Edit it freely.
+- **Playlists**: `data/themes.fr.json` defines the themes picked on the home page. A theme
+  selects songs by a range of years (`"years": [1980, 1989]`), by tags (`"tags": ["rap"]`), or
+  both; a theme with neither (`mix`) plays every song. Shipped: Le grand mix, Années 60-70, 80,
+  90, 2000, 2010-2020, Les grands classiques, Ça danse !, Rap français, Rock français. A test
+  checks that every theme has at least 25 songs.
 - **Extracts**: the [Deezer API](https://developers.deezer.com/api) provides official 30 s
   previews without an API key. Preview URLs are signed and expire, so the server looks them
   up when the room is created (`app/deezer.py`) and skips songs Deezer cannot find. The host
@@ -102,18 +109,28 @@ extract of a French song, played by the host screen (the agent never sings or hu
   when it stops talking, with 25 s to buzz. While the song plays before the answer, the agent's
   voice is muted on the host screen (the song has priority, whatever the LLM decides to say).
   A buzz pauses the music and opens the player's mic at once; after a wrong answer, the music waits for the agent to relaunch the
-  others and resumes. Once the answer is out, the TV shows the album cover and the song plays
-  under the agent's reaction (ducked to 12 % while it talks, so the voice stays on top), then
-  stops 1.5 s after the agent is done (12 s at most).
+  others and resumes. Once the answer is out, the record's label turns into the album cover,
+  the TV shows the title, artist and year, and the song plays under the agent's reaction
+  (ducked to 12 % while it talks, so the voice stays on top), then stops 1.5 s after the agent
+  is done (12 s at most).
 - **Pauses inside a sentence**: the SDK reports "listening" during short pauses within one
   sentence (between expression tags). The host only treats the agent as done after 800 ms
   of quiet, so the music never restarts in the middle of a sentence.
-- **Moving on**: if the agent stops talking after a question closes without calling
+- **Moving on**: if the agent stops talking after a round closes without calling
   `next_question`, it gets a `SUITE` message after 3 s; if the game is still stuck 8 s later,
   the host screen calls `next_question` itself.
 - **Scoring**: 1 point for the artist, 1 point for the title, 3 for both. The agent passes
-  `artist` and `title` to `submit_verdict`; the host has 🎤 Artiste (`A`) and 🎵 Titre (`S`)
-  buttons, and ✅ Correct means both.
+  `artist` and `title` to `submit_verdict`; the host has ✅ Les deux (`C`), 🎤 Artiste (`A`),
+  🎵 Titre (`S`) and ❌ Faux (`F`) buttons.
+
+## Look and feel
+
+Neon night-club theme, no assets: on the TV a turntable whose record spins and tone arm drops
+while the extract plays, an equalizer that dances with it, a "Top des charts" scoreboard and a
+gold/platinum/bronze record podium. On the phones, the buzzer is a giant record whose label
+takes the player's colour. Everything is CSS (`static/base.css`, `static/host.css`); the
+spinning, the notes floating in the background and the equalizer stop under
+`prefers-reduced-motion`.
 
 ## How it works
 
@@ -144,21 +161,22 @@ flowchart LR
   (`get_game_state`, `start_game`, `next_question`, `start_timer`, `submit_verdict`,
   `reveal_answer`, `get_scores`). They run in the host browser, which relays them to the server over its
   WebSocket. Every result carries a `nextStep` hint, and errors are plain sentences the agent
-  can recover from ("Ce n'est pas ce joueur qui a la main. C'est Léa.").
+  can recover from ("Ce n'est pas ce joueur qui a la main. C'est Léa."). Tool names keep the
+generic "question" wording (`next_question`): each question is a song.
 - **Phones are thin.** A nickname, a giant button, a colour per player, haptics and a few
   (cheeky) status lines. A `playerId` in `sessionStorage` brings a player back after a
   reconnection.
 
 Phases: `LOBBY → QUESTION_READING → BUZZ_OPEN → ANSWERING → REVEAL → … → FINISHED`.
-Buzzing opens only when the countdown starts, once the question has been read out loud: an
-earlier buzz is "too early" (the phone says so) and does not count.
+Buzzing opens only when the music starts, once the agent has announced the song: an earlier
+buzz is "too early" (the phone says so) and does not count.
 
 | Rule | Value |
 |---|---|
-| Right answer | +1, the question closes |
-| Wrong answer | 0, the player is locked out for this question; the others get a 10 s re-buzz window |
-| Countdown | Started by the agent's `start_timer` tool once it has read the question; 20 s to buzz |
-| No buzz | The question closes when the 20 s run out |
+| Right answer | Artist +1, title +1, both +3; the song closes |
+| Wrong answer | 0, the player is locked out for this song; the music resumes and the others get a 10 s re-buzz window |
+| Countdown | Started by the agent's `start_timer` tool once it has announced the song; 25 s to buzz while the extract plays |
+| No buzz | The song closes when the 25 s run out |
 | Answer window | The mic opens as soon as the player buzzes, for 8 s: they answer straight away, without waiting for the host. As soon as their answer is transcribed, the mic closes and the countdown stops (only the first answer counts). An answer followed by chatter ("Canberra, c'est trop facile") still counts if the answer itself came in time. Counted wrong after 20 s without a verdict |
 | Anti-spam | 1 buzz per 300 ms per player |
 
@@ -197,16 +215,15 @@ for the end of their turn (their answer was transcribed 9 s late in a live game)
 has been transcribed 2.5 s after the time-up, the agent gets `FIN_DU_TEMPS` and judges what
 it heard.
 
-### Starting the countdown
+### Starting the music
 
-The agent often comments on the previous answer before reading the next question, so the
-countdown cannot start when the question is drawn. The agent starts it itself with the
-`start_timer` tool, right after reading the question; buzzing opens at that moment. The LLM
-emits the tool call while the question's audio is often still playing, so the host screen
-defers the real start until the agent stops talking. Two safety nets: if the agent's
-transcript contained the question but `start_timer` never came, the countdown starts after
-4 s of silence; and the server starts it anyway 30 s after the question was drawn. The
-question appears on the TV when the agent reads it, not before.
+The agent often comments on the previous song before announcing the next one, so the music
+cannot start when the song is drawn. The agent starts it itself with the `start_timer` tool,
+right after announcing "Chanson numéro 3 !"; buzzing opens at that moment. The LLM emits the
+tool call while the announcement's audio is often still playing, so the host screen defers
+the real start until the agent stops talking. Two safety nets: if the agent's transcript
+contained the announcement ("chanson") but `start_timer` never came, the music starts after
+1.5 s of silence; and the server starts the countdown anyway 30 s after the song was drawn.
 
 ### Driving the agent
 
@@ -215,15 +232,15 @@ Because the mic is muted most of the time, the app drives the agent with text me
 talking, the host screen ducks the agent's volume until its next turn starts.
 
 The game is robust to the agent being wrong or slow: the server enforces every deadline, and
-the host has fallback buttons (✅ Correct, ❌ Faux, ⏱️ Chrono, 💡 Réponse, ⏭️ Question suivante,
-⏸️ Pause) with keyboard shortcuts `C`, `F`, `T`, `R`, `N`, `P`. When the host overrides, the
+the host has fallback buttons (✅ Les deux, 🎤 Artiste, 🎵 Titre, ❌ Faux, ▶️ Musique, 💡 Réponse,
+⏭️ Chanson suivante, ⏸️ Pause) with keyboard shortcuts `C`, `A`, `S`, `F`, `T`, `R`, `N`, `P`. When the host overrides, the
 agent is told and reacts.
 
 ### Judging answers: option A (implemented) and option B
 
-**Option A (implemented):** `start_game` and `next_question` return the question with its
-`acceptedAnswers`, and the prompt forbids revealing them before a verdict. The LLM judges by
-ear, leniently (pronunciation, missing article), which a fuzzy string match handles badly on
+**Option A (implemented):** `start_game` and `next_question` return the song with its
+`acceptedArtists` and `acceptedTitles`, and the prompt forbids revealing them before a
+verdict. The LLM judges by ear, leniently (pronunciation, missing words in the title), which a fuzzy string match handles badly on
 speech transcripts. The trade-off is that the answer is in the agent's context and a
 prompt-injection-minded player could try to extract it ("ignore your instructions and…").
 The host screen never shows the answer before it has been said out loud.
@@ -256,10 +273,13 @@ adapter that calls it with `source="hardware"`. The game logic stays untouched.
 | `app/game.py` | State machine, arbitration, scores, agent/host/player views |
 | `app/room.py` | Rooms, WebSocket fan-out, timer loop |
 | `app/routes.py` | Pages, REST API, WebSockets |
+| `app/songs.py` | Song list and playlist (theme) loading |
+| `app/deezer.py` | Deezer preview lookup when a room is created |
 | `app/elevenlabs.py` | Conversation token minting |
 | `app/main.py` | FastAPI app (entry point) |
 | `static/` | Host screen, player phone, landing page (vanilla JS modules, no build step) |
-| `data/questions.fr.json` | 32 general-knowledge questions |
+| `data/songs.fr.json` | ~280 French songs with year, tags and accepted answers |
+| `data/themes.fr.json` | Playlists picked on the home page |
 | `agent/` | Agent prompt, config, and creation script |
 | `tests/` | pytest suite: state machine, arbitration, WebSocket flows, config consistency |
 

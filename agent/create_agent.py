@@ -1,4 +1,4 @@
-"""Creates the Quiz Host agent on ElevenLabs from agent-config.json.
+"""Creates the Blind Test agent on ElevenLabs from agent-config.json.
 
 Usage (from the repository root):
     python agent/create_agent.py --voice-id <VOICE_ID>

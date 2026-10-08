@@ -1,4 +1,4 @@
-// Game-show sound effects (synthesized, no assets) and end-of-game confetti.
+// Game-show sound effects (synthesized, no assets) and end-of-game confetti (with music notes).
 
 let audio = null;
 
@@ -44,7 +44,8 @@ export function sfx(name) {
 
 export function celebrate(canvas, durationMs = 6000) {
   const ctx = canvas.getContext("2d");
-  const colors = ["#ff3d7f", "#3dd6ff", "#ffd23d", "#9d5cff", "#3dff8b", "#ff8a3d"];
+  const colors = ["#ff2e88", "#25e3ff", "#ffc93c", "#9d5cff", "#3dff8b", "#ff8a3d"];
+  const notes = ["♪", "♫", "♬"];
   const resize = () => {
     canvas.width = innerWidth * devicePixelRatio;
     canvas.height = innerHeight * devicePixelRatio;
@@ -60,6 +61,7 @@ export function celebrate(canvas, durationMs = 6000) {
     rot: Math.random() * Math.PI,
     vr: (Math.random() - 0.5) * 0.2,
     color: colors[Math.floor(Math.random() * colors.length)],
+    note: Math.random() < 0.3 ? notes[Math.floor(Math.random() * notes.length)] : null,
   }));
   const end = performance.now() + durationMs;
   function frame(now) {
@@ -74,7 +76,12 @@ export function celebrate(canvas, durationMs = 6000) {
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = p.color;
-      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      if (p.note) {
+        ctx.font = `${p.h * 2}px sans-serif`;
+        ctx.fillText(p.note, -p.w / 2, p.h / 2);
+      } else {
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      }
       ctx.restore();
     }
     requestAnimationFrame(frame);

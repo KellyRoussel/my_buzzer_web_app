@@ -15,8 +15,7 @@ from typing import Any, Awaitable, Callable
 from fastapi import WebSocket
 
 from app.game import BuzzResult, Event, Game, GameError, GameSettings
-from app.models import Question
-from app.questions import load_questions
+from app.models import SongQuestion
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ class Room:
 
     def start(self) -> None:
         if self._ticker is None:
-            self._ticker = asyncio.create_task(self._tick_loop(), name=f"quiz-room-{self.code}")
+            self._ticker = asyncio.create_task(self._tick_loop(), name=f"blindtest-room-{self.code}")
 
     def close(self) -> None:
         self._closed = True
@@ -63,7 +62,7 @@ class Room:
                 if events:
                     await self.publish(events)
             except Exception:  # never let one bad tick kill the room
-                logger.exception("Quiz room %s tick failed", self.code)
+                logger.exception("Room %s tick failed", self.code)
 
     # -------------------------------------------------------------- connections
 
@@ -125,11 +124,11 @@ class Room:
             "next_question": lambda: self.game.next_question(now, force=_as_bool(params.get("force"))),
             "submit_verdict": lambda: self.game.submit_verdict(
                 str(params.get("playerId") or self.game.answering or ""),
-                _optional_bool(params.get("correct")),
                 now,
-                by=str(params.get("by", "agent")),
                 artist=_optional_bool(params.get("artist")),
                 title=_optional_bool(params.get("title")),
+                correct=_optional_bool(params.get("correct")),
+                by=str(params.get("by", "agent")),
             ),
             "reveal_answer": lambda: (self.game.reveal_answer(), [{"type": "answer_revealed"}]),
             "get_scores": lambda: (self.game.scores_payload(), []),
@@ -168,7 +167,7 @@ class Room:
             await ws.send_json(message)
         except Exception:
             # The receive loop of that socket will notice the disconnect and clean up.
-            logger.debug("Quiz room %s: send failed", self.code)
+            logger.debug("Room %s: send failed", self.code)
 
 
 def _optional_bool(value: Any) -> bool | None:
@@ -186,14 +185,14 @@ class RoomManager:
         self.clock = clock
         self.rooms: dict[str, Room] = {}
 
-    def create(self, total_questions: int, questions: list[Question] | None = None) -> Room:
-        """Creates a room. `questions` is the pool to draw from (default: the quiz bank)."""
+    def create(self, total_questions: int, songs: list[SongQuestion], theme: str) -> Room:
+        """Creates a room that plays `songs` (ready to play: previews looked up)."""
         self.purge_idle()
         if len(self.rooms) >= MAX_ROOMS:
             raise RuntimeError("Too many open rooms")
         code = self._new_code()
-        pool = list(questions) if questions is not None else list(load_questions())
-        room = Room(code, Game(pool, GameSettings(total_questions=total_questions)), clock=self.clock)
+        game = Game(list(songs), GameSettings(total_questions=total_questions), theme=theme)
+        room = Room(code, game, clock=self.clock)
         self.rooms[code] = room
         room.start()
         return room

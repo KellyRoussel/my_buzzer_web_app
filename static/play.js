@@ -1,5 +1,5 @@
-// Player phone: nickname, then one giant BUZZ button.
-import { connect, pick, roomCodeFromPath, storage, wsUrl } from "/static/common.js";
+// Player phone: nickname, then one giant BUZZ button (a record).
+import { connect, pick, roomCodeFromPath, scatterNotes, storage, wsUrl } from "/static/common.js";
 
 const code = roomCodeFromPath();
 const session = storage("session");
@@ -21,11 +21,11 @@ const TEASES = {
     "L'animateur arrive. Il paraît qu'il ne fait pas de cadeaux.",
     "Profite, c'est le seul moment où tu es ex aequo avec tout le monde.",
   ],
-  armed: ["Buzze si tu l'oses.", "Le premier qui buzze a la main.", "Vas-y, on y croit (un peu)."],
+  armed: ["Qui chante ? Quel titre ?", "Artiste, titre… ou les deux ?", "Buzze si tu l'oses.", "Ça te dit quelque chose, non ?"],
   hand: ["Parle fort et distinctement. Pas de pression.", "Toute la salle t'écoute. Vraiment toute.", "C'est ton moment de gloire. Ou pas."],
-  late: ["Trop tard, escargot 🐌", "Raté, quelqu'un a été plus rapide.", "La prochaine fois, buzze avant de réfléchir."],
+  late: ["Trop tard, escargot 🐌", "Raté, quelqu'un a l'oreille plus fine.", "La prochaine fois, buzze avant de réfléchir."],
   locked: ["Bloqué·e pour cette question 🙊", "Tu as eu ta chance. Elle est partie.", "Le buzzer ne va pas changer d'avis."],
-  reveal: ["Suspense…", "Prochaine question dans un instant.", "Respire, ça repart."],
+  reveal: ["Suspense…", "Prochaine chanson dans un instant.", "Respire, ça repart."],
   paused: ["Pause ☕", "L'animateur reprend son souffle."],
 };
 
@@ -107,7 +107,7 @@ document.addEventListener("keydown", (event) => {
 function onBuzzResult(result) {
   const now = performance.now();
   if (result === "too_early") {
-    flash = { cls: "late", big: "TROP TÔT", small: "Attends la fin de la question, petit malin 🙃", until: now + 1400 };
+    flash = { cls: "late", big: "TROP TÔT", small: "Attends que la musique démarre, petit malin 🙃", until: now + 1400 };
   } else if (result === "too_late") {
     flash = { cls: "late", big: "TROP TARD", small: pick(TEASES.late), until: now + 1400 };
   } else if (result === "locked") {
@@ -129,18 +129,17 @@ function view() {
     case "LOBBY":
       return { cls: "waiting", big: "PRÊT ?", small: `${me.playerCount} joueur·s dans la salle. ${pick(TEASES.lobby, me.id)}` };
     case "QUESTION_READING":
-      return { cls: "waiting", big: "ÉCOUTE…", small: state.mode === "blindtest"
-        ? "Le buzzer s'active quand la musique démarre." : "Le buzzer s'active quand le chrono démarre." };
+      return { cls: "waiting", big: "🎧", small: "Le buzzer s'active quand la musique démarre." };
     case "BUZZ_OPEN":
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: pick(TEASES.locked, seed) };
-      return { cls: "armed", big: "BUZZ", small: state.mode === "blindtest" ? "Qui chante ? Quel titre ?" : pick(TEASES.armed, seed), color: me.color };
+      return { cls: "armed", big: "BUZZ", small: pick(TEASES.armed, seed), color: me.color };
     case "ANSWERING":
       if (state.hasHand && state.answered) return { cls: "hand", big: "🤞", small: "Réponse envoyée. Verdict dans un instant…" };
       if (state.hasHand) return { cls: "hand", big: "PARLE !", small: pick(TEASES.hand, seed) };
       if (state.locked) return { cls: "locked", big: "BLOQUÉ", small: `${state.answeringName} tente sa chance.` };
       return { cls: "late", big: "TROP TARD", small: `${state.answeringName} a la main.` };
     case "REVEAL":
-      return { cls: "waiting", big: state.answer ? "RÉPONSE" : "…", small: state.answer || pick(TEASES.reveal, seed) };
+      return { cls: "waiting", big: state.answer ? "💿" : "…", small: state.answer || pick(TEASES.reveal, seed) };
     case "FINISHED": {
       if (me.rank === 1) return { cls: "win", big: "🏆 VICTOIRE", small: "Savoure. Ça ne durera pas." };
       const last = me.rank === me.playerCount && me.playerCount > 1;
@@ -162,14 +161,15 @@ function render() {
   else flash = null;
 
   buzzButton.className = v.cls + (flash ? " flash" : "");
-  buzzButton.style.background = v.color && !flash ? v.color : "";
+  if (v.color && !flash) $("disc").style.setProperty("--label", v.color);
+  else $("disc").style.removeProperty("--label");
   $("buzz-big").textContent = v.big;
-  $("buzz-big").classList.toggle("long", [...v.big].length > 6);
+  $("buzz-big").classList.toggle("long", [...v.big].length > 5);
   $("buzz-small").textContent = v.small;
 
   const me = state.me;
   $("score").textContent = `${me.score} pt${me.score > 1 ? "s" : ""}` + (me.rank ? ` · ${me.rank}${me.rank === 1 ? "er" : "e"}/${me.playerCount}` : "");
-  $("progress").textContent = state.questionNumber ? `Question ${state.questionNumber}/${state.totalQuestions}` : `Salle ${code}`;
+  $("progress").textContent = state.questionNumber ? `🎵 ${state.questionNumber}/${state.totalQuestions}` : `Salle ${code}`;
 }
 
 function animateTimer() {
@@ -184,5 +184,6 @@ function animateTimer() {
   requestAnimationFrame(animateTimer);
 }
 
+scatterNotes(8);
 animateTimer();
 if (!identity) showJoin();

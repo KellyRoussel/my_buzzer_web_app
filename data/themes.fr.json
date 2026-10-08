@@ -1,0 +1,12 @@
+[
+  {"id": "mix", "label": "Le grand mix", "emoji": "🎲", "description": "Toutes les époques, tous les styles : personne n'est à l'abri."},
+  {"id": "annees-60-70", "label": "Années 60-70", "emoji": "🕺", "description": "Yé-yé, pattes d'eph' et premiers slows.", "years": [1958, 1979]},
+  {"id": "annees-80", "label": "Années 80", "emoji": "📼", "description": "Synthés, brushing et tubes du Top 50.", "years": [1980, 1989]},
+  {"id": "annees-90", "label": "Années 90", "emoji": "💿", "description": "Du rap qui pose, des ballades à briquets.", "years": [1990, 1999]},
+  {"id": "annees-2000", "label": "Années 2000", "emoji": "📱", "description": "Télé-crochets, sonneries et refrains collants.", "years": [2000, 2009]},
+  {"id": "annees-2010-2020", "label": "Années 2010-2020", "emoji": "🎧", "description": "Les tubes du streaming, de Stromae à Aya.", "years": [2010, 2029]},
+  {"id": "classiques", "label": "Les grands classiques", "emoji": "🌹", "description": "Piaf, Brel, Aznavour et toute la bande.", "tags": ["classique"]},
+  {"id": "fete", "label": "Ça danse !", "emoji": "🪩", "description": "Les refrains de mariage et de fin de soirée.", "tags": ["fete"]},
+  {"id": "rap", "label": "Rap français", "emoji": "🎤", "description": "De MC Solaar à PNL.", "tags": ["rap"]},
+  {"id": "rock", "label": "Rock français", "emoji": "🎸", "description": "Guitares, Téléphone et Noir Désir.", "tags": ["rock"]}
+]

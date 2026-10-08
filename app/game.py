@@ -1,4 +1,4 @@
-"""Quiz game state machine.
+"""Blind test game state machine.
 
 The game is the single source of truth for phases, buzz order and scores.
 It is pure and synchronous: every method takes the current time (`now`, in
@@ -9,8 +9,9 @@ Phases:
     LOBBY -> QUESTION_READING -> BUZZ_OPEN -> ANSWERING -> REVEAL
           -> (QUESTION_READING | FINISHED)
 
-Buzzing opens only when the timer starts (start_timer), once the question has
-been read out loud: a buzz during QUESTION_READING is "too early".
+Each question is a song extract, played by the host screen. Buzzing opens only
+when the timer starts (start_timer), once the agent has announced the song: a
+buzz during QUESTION_READING is "too early".
 
 Messages returned to the agent (errors, hints) are in French because they are
 read by a French-speaking voice agent.
@@ -21,7 +22,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from app.models import Question, SongQuestion
+from app.models import SongQuestion
 
 PLAYER_COLORS = [
     "#ff3d7f", "#3dd6ff", "#ffd23d", "#9d5cff",
@@ -64,9 +65,8 @@ class GameSettings:
     # If the timer is never started (agent forgot start_timer), start it anyway.
     # Generous on purpose: the agent often comments on the previous answer before reading.
     reading_fallback_s: float = 30.0
-    buzz_window_s: float = 20.0
-    # Blind test: buzz window while the 30 s song preview plays.
-    song_window_s: float = 25.0
+    # Buzz window while the 30 s song preview plays.
+    buzz_window_s: float = 25.0
     # Shorter window after a wrong answer, to keep the pace up.
     rebuzz_window_s: float = 10.0
     # Microphone window given to the player who has the hand, from the moment they buzz.
@@ -105,18 +105,18 @@ class BuzzRecord:
 
 @dataclass
 class Game:
-    questions: list[Question]
+    questions: list[SongQuestion]
     settings: GameSettings = field(default_factory=GameSettings)
     rng: random.Random = field(default_factory=random.Random)
+    theme: str = "Le grand mix"
 
     def __post_init__(self) -> None:
         if not self.questions:
-            raise ValueError("The question bank is empty")
+            raise ValueError("The song list is empty")
         total = min(self.settings.total_questions, len(self.questions))
         self.settings.total_questions = total
         # Drawn once, so a game never repeats a question.
-        self.deck: list[Question] = self.rng.sample(list(self.questions), total)
-        self.mode = "blindtest" if any(isinstance(q, SongQuestion) for q in self.deck) else "quiz"
+        self.deck: list[SongQuestion] = self.rng.sample(list(self.questions), total)
         self.players: dict[str, Player] = {}
         self.phase = Phase.LOBBY
         self.question_index = -1
@@ -164,7 +164,7 @@ class Game:
     # --------------------------------------------------------------- game flow
 
     @property
-    def current_question(self) -> Question | None:
+    def current_question(self) -> SongQuestion | None:
         if 0 <= self.question_index < len(self.deck):
             return self.deck[self.question_index]
         return None
@@ -174,9 +174,9 @@ class Game:
             return self._question_payload(note="La partie a déjà commencé : voici la question en cours."), []
         if not self.players:
             raise GameError("Aucun joueur n'a rejoint la partie. Attends qu'au moins un joueur scanne le QR code.")
-        events = [{"type": "game_started", "mode": self.mode}]
+        events = [{"type": "game_started", "theme": self.theme}]
         events += self._open_question(now)
-        return {"mode": self.mode, **self._question_payload()}, events
+        return {"theme": self.theme, **self._question_payload()}, events
 
     def next_question(self, now: float, force: bool = False) -> tuple[dict, list[Event]]:
         """Moves on to the next question. `force` (host button) skips a question still in play."""
@@ -198,14 +198,14 @@ class Game:
         return self._question_payload(), events
 
     def start_timer(self, now: float) -> list[Event]:
-        """The question has been read out loud: open buzzing and start the countdown."""
+        """The song has been announced: the music starts, buzzing opens and the countdown runs."""
         if self.phase != Phase.QUESTION_READING:
             return []
         self.phase = Phase.BUZZ_OPEN
         self.buzz_opened_at = now
-        window = self.settings.song_window_s if self.is_song else self.settings.buzz_window_s
+        window = self.settings.buzz_window_s
         self._set_deadline("buzz", now, window)
-        return [{"type": "buzz_open", "windowS": window, "song": self.is_song}]
+        return [{"type": "buzz_open", "windowS": window}]
 
     def buzz(self, player_id: str, now: float, source: str = "mobile") -> tuple[BuzzResult, list[Event]]:
         """Arbitrates a buzz. The first buzz *received* wins; client clocks are never trusted."""
@@ -256,34 +256,30 @@ class Game:
     def submit_verdict(
         self,
         player_id: str,
-        correct: bool | None,
         now: float,
-        by: str = "agent",
         artist: bool | None = None,
         title: bool | None = None,
+        correct: bool | None = None,
+        by: str = "agent",
     ) -> tuple[dict, list[Event]]:
         """Judges the answer of the player who has the hand.
 
-        Quiz question: `correct`. Blind test song: `artist` and `title`, scored 1 point
-        each, 3 for both (a plain `correct=False` also works for "nothing right").
+        `artist` and `title` are scored 1 point each, 3 for both. A plain `correct`
+        also works: true for the whole song, false for "nothing right".
         """
         if self.phase != Phase.ANSWERING or self.answering is None:
             raise GameError("Personne n'a la main en ce moment : il n'y a rien à juger.")
         if player_id != self.answering:
             holder = self.players[self.answering]
             raise GameError(f"Ce n'est pas ce joueur qui a la main. C'est {holder.name} (id {holder.id}).")
-        found = None
-        if self.is_song:
-            if artist is None and title is None:
-                # The agent used the quiz form: "correct" means it found the whole song. Accepting it
-                # beats an error and a retry that can take longer than the time left to judge.
-                artist = title = bool(correct)
-            found = {"artist": bool(artist), "title": bool(title)}
-            points = SONG_POINTS[(found["artist"], found["title"])]
-        else:
+        if artist is None and title is None:
             if correct is None:
-                raise GameError("Indique correct (true ou false).")
-            points = 1 if correct else 0
+                raise GameError("Indique artist et title (true ou false).")
+            # "correct" means the whole song. Accepting it beats an error and a retry that can
+            # take longer than the time left to judge.
+            artist = title = correct
+        found = {"artist": bool(artist), "title": bool(title)}
+        points = SONG_POINTS[(found["artist"], found["title"])]
         events = self._apply_verdict(points, now, by=by, found=found)
         return self._verdict_payload(player_id, points, found), events
 
@@ -294,9 +290,8 @@ class Game:
         if self.phase not in (Phase.REVEAL, Phase.FINISHED):
             raise GameError("Interdit de donner la réponse maintenant : la question est encore en jeu.")
         self.answer_revealed = True
-        if isinstance(question, SongQuestion):
-            return {"artist": question.artist, "title": question.title, "answer": _song_answer(question)}
-        return {"answer": question.answer, "acceptedAnswers": question.acceptedAnswers}
+        return {"artist": question.artist, "title": question.title, "year": question.year,
+                "answer": _song_answer(question)}
 
     def pause(self, now: float) -> list[Event]:
         if self.paused_remaining is not None:
@@ -323,10 +318,6 @@ class Game:
         if self.phase == Phase.FINISHED:
             return True
         return self.phase == Phase.REVEAL and (self.answer_revealed or self.solved)
-
-    @property
-    def is_song(self) -> bool:
-        return isinstance(self.current_question, SongQuestion)
 
     @property
     def paused(self) -> bool:
@@ -383,7 +374,7 @@ class Game:
         """What the agent sees through get_game_state."""
         state: dict[str, Any] = {
             "phase": self.phase.value,
-            "mode": self.mode,
+            "theme": self.theme,
             **self._progress(),
             "players": self.ranking(),
             "nextStep": self._next_step_hint(),
@@ -401,7 +392,7 @@ class Game:
         question = self.current_question
         state: dict[str, Any] = {
             "phase": self.phase.value,
-            "mode": self.mode,
+            "theme": self.theme,
             **self._progress(),
             "paused": self.paused,
             "players": [
@@ -418,16 +409,12 @@ class Game:
             "answer": None,
         }
         if question and self.phase != Phase.LOBBY:
-            if isinstance(question, SongQuestion):
-                # The clip URL reveals nothing about the song; the host screen plays it.
-                state["question"] = {"kind": "song", "text": f"🎵 Chanson {self.question_index + 1}",
-                                     "category": "Blind test", "clipUrl": question.preview_url}
-                if self.answer_visible:
-                    state["coverUrl"] = question.cover_url
-            else:
-                state["question"] = {"kind": "text", "text": question.question, "category": question.category}
+            # The clip URL reveals nothing about the song; the host screen plays it.
+            state["question"] = {"text": f"Chanson {self.question_index + 1}", "clipUrl": question.preview_url}
             if self.answer_visible:
-                state["answer"] = _answer_text(question)
+                state["answer"] = _song_answer(question)
+                state["artist"], state["title"], state["year"] = question.artist, question.title, question.year
+                state["coverUrl"] = question.cover_url
         return state
 
     def player_state(self, player_id: str, now: float) -> dict:
@@ -435,7 +422,7 @@ class Game:
         rank = next((r["rank"] for r in self.ranking() if r["playerId"] == player_id), None)
         return {
             "phase": self.phase.value,
-            "mode": self.mode,
+            "theme": self.theme,
             **self._progress(),
             "paused": self.paused,
             "me": {
@@ -449,7 +436,7 @@ class Game:
             "answeringName": self.players[self.answering].name if self.answering else None,
             "canBuzz": self.phase in BUZZABLE_PHASES and player_id not in self.locked and not self.paused,
             **self._deadline_view(now),
-            "answer": _answer_text(self.current_question) if self.answer_visible else None,
+            "answer": _song_answer(self.current_question) if self.answer_visible else None,
         }
 
     # ---------------------------------------------------------------- internals
@@ -486,9 +473,7 @@ class Game:
         for player in self.players.values():
             player.spam_this_question = 0
         self._set_deadline("reading", now, self.settings.reading_fallback_s)
-        question = self.current_question
-        return [{"type": "question", "index": self.question_index + 1, "total": len(self.deck),
-                 "kind": question.kind, "category": getattr(question, "category", "Blind test")}]
+        return [{"type": "question", "index": self.question_index + 1, "total": len(self.deck)}]
 
     def _apply_verdict(self, points: int, now: float, by: str, found: dict | None = None) -> list[Event]:
         player = self.players[self.answering]
@@ -538,40 +523,24 @@ class Game:
 
     def _question_payload(self, note: str | None = None) -> dict:
         question = self.current_question
-        if isinstance(question, SongQuestion):
-            payload = {
-                "index": self.question_index + 1,
-                "total": len(self.deck),
-                "kind": "chanson",
-                # The agent judges by ear, so it needs the answer; the prompt keeps it secret.
-                "artist": question.artist,
-                "title": question.title,
-                "acceptedArtists": question.acceptedArtists,
-                "acceptedTitles": question.acceptedTitles,
-                "secret": "Ne révèle JAMAIS l'artiste ni le titre, et ne fredonne pas, avant un verdict ou reveal_answer.",
-                "nextStep": (f"Annonce « Chanson numéro {self.question_index + 1} ! » en une phrase, appelle "
-                             "start_timer (la musique démarre quand tu te tais), puis tais-toi pendant l'extrait "
-                             "et attends un message BUZZ ou TIMEOUT."),
-            }
-            if note:
-                payload["note"] = note
-            return payload
         payload = {
             "index": self.question_index + 1,
             "total": len(self.deck),
-            "category": question.category,
-            "question": question.question,
-            # Option A: the agent judges answers itself, so it needs the accepted answers.
-            # The system prompt forbids revealing them before a verdict.
-            "acceptedAnswers": question.acceptedAnswers,
-            "secret": "Ne révèle JAMAIS ces réponses avant un verdict ou reveal_answer.",
-            "nextStep": "Lis la question, appelle start_timer, puis tais-toi et attends un message BUZZ ou TIMEOUT.",
+            # The agent judges by ear, so it needs the answer; the prompt keeps it secret.
+            "artist": question.artist,
+            "title": question.title,
+            "acceptedArtists": question.acceptedArtists,
+            "acceptedTitles": question.acceptedTitles,
+            "secret": "Ne révèle JAMAIS l'artiste, le titre ni l'année, et ne fredonne pas, avant un verdict ou reveal_answer.",
+            "nextStep": (f"Annonce « Chanson numéro {self.question_index + 1} ! » en une phrase, appelle "
+                         "start_timer (la musique démarre quand tu te tais), puis tais-toi pendant l'extrait "
+                         "et attends un message BUZZ ou TIMEOUT."),
         }
         if note:
             payload["note"] = note
         return payload
 
-    def _verdict_payload(self, player_id: str, points: int, found: dict | None = None) -> dict:
+    def _verdict_payload(self, player_id: str, points: int, found: dict) -> dict:
         correct = points > 0
         player = self.players[player_id]
         payload: dict[str, Any] = {
@@ -591,13 +560,13 @@ class Game:
         else:
             payload["nextStep"] = self._next_step_hint()
             payload["announceScores"] = self._should_announce_scores()
-        if found is not None and correct:
+        if correct:
             missing = [label for key, label in (("artist", "l'artiste"), ("title", "le titre")) if not found[key]]
             payload["found"] = found
             if missing:
                 payload["missing"] = f"{player.name} n'a pas trouvé {missing[0]} : tu peux le donner en révélant la réponse."
-        if correct and player.streak >= 2:
-            payload["streak"] = f"{player.name} enchaîne {player.streak} bonnes réponses d'affilée."
+            if player.streak >= 2:
+                payload["streak"] = f"{player.name} enchaîne {player.streak} bonnes réponses d'affilée."
         return payload
 
     def _progress(self) -> dict:
@@ -613,22 +582,21 @@ class Game:
 
     def _next_step_hint(self) -> str:
         if self.phase == Phase.LOBBY:
-            return "Accueille les joueurs. Quand l'hôte te demande de lancer, appelle start_game."
+            return (f"Accueille les joueurs et annonce le thème du blind test ({self.theme}). "
+                    "Quand l'hôte te demande de lancer, appelle start_game.")
         if self.phase == Phase.QUESTION_READING:
-            if self.is_song:
-                return "Annonce la chanson si ce n'est pas fait, puis appelle start_timer et tais-toi pendant la musique."
-            return "Lis la question si ce n'est pas fait, puis appelle start_timer et tais-toi."
+            return "Annonce la chanson si ce n'est pas fait, puis appelle start_timer et tais-toi pendant la musique."
         if self.phase in BUZZABLE_PHASES:
             return "Chrono lancé : tais-toi et attends un message BUZZ ou TIMEOUT."
         if self.phase == Phase.ANSWERING:
             name = self.players[self.answering].name
-            return f"{name} a la main : écoute UNE réponse, puis appelle submit_verdict."
+            return f"{name} a la main : écoute UNE réponse, puis appelle submit_verdict avec artist et title."
         if self.phase == Phase.REVEAL:
             last = self.question_index + 1 >= len(self.deck)
             then = "puis appelle next_question pour terminer la partie" if last else "puis appelle next_question"
             if self.answer_revealed:
                 return f"Réponse déjà donnée : {then}."
-            return f"Si la bonne réponse n'a pas été dite, appelle reveal_answer et annonce-la, {then}."
+            return f"Si l'artiste et le titre n'ont pas été dits, appelle reveal_answer et annonce-les, {then}."
         return "La partie est terminée : annonce le podium."
 
     def _teasing_material(self, ranking: list[dict]) -> list[str]:
@@ -670,6 +638,3 @@ SONG_POINTS = {(False, False): 0, (True, False): 1, (False, True): 1, (True, Tru
 def _song_answer(song: SongQuestion) -> str:
     return f"{song.artist} — {song.title}"
 
-
-def _answer_text(question: Question) -> str:
-    return _song_answer(question) if isinstance(question, SongQuestion) else question.answer

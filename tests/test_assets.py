@@ -1,22 +1,10 @@
-"""Checks on the question bank and the agent configuration files."""
+"""Checks on the agent configuration files."""
 import json
 import re
 from pathlib import Path
 
-from app.questions import load_questions
-
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_DIR = ROOT / "agent"
-
-
-def test_question_bank_is_large_and_well_formed():
-    questions = load_questions()
-    assert len(questions) >= 20
-    assert len({q.question for q in questions}) == len(questions)
-    for q in questions:
-        assert q.question.endswith("?"), q.id
-        assert q.acceptedAnswers, q.id
-        assert all(a == a.lower() for a in q.acceptedAnswers), q.id
 
 
 def test_agent_markdown_embeds_the_current_prompt():

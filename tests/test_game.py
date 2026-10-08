@@ -3,15 +3,21 @@ import random
 import pytest
 
 from app.game import BuzzResult, Game, GameError, GameSettings, Phase
-from app.models import QuizQuestion
+from app.models import SongQuestion
 
 
-def make_questions(n: int = 10) -> list[QuizQuestion]:
+def make_questions(n: int = 10) -> list[SongQuestion]:
     return [
-        QuizQuestion(id=f"q{i}", category="Test", question=f"Question {i} ?", answer=f"R{i}",
-                     acceptedAnswers=[f"r{i}"])
+        SongQuestion(id=f"s{i}", artist=f"Artiste {i}", title=f"Titre {i}", year=1980 + i,
+                     acceptedArtists=[f"artiste {i}"], acceptedTitles=[f"titre {i}"],
+                     preview_url=f"https://cdn.example/{i}.mp3", cover_url=f"https://cdn.example/{i}.jpg")
         for i in range(n)
     ]
+
+
+def answer_of(game: Game) -> str:
+    song = game.current_question
+    return f"{song.artist} — {song.title}"
 
 
 def make_game(players: int = 3, total: int = 5, **settings) -> Game:
@@ -66,12 +72,13 @@ def test_start_requires_a_player():
         make_game(players=0).start_game(0)
 
 
-def test_start_game_opens_first_question_with_accepted_answers():
+def test_start_game_opens_first_song_with_accepted_answers():
     game = make_game()
     payload, events = game.start_game(0)
     assert game.phase == Phase.QUESTION_READING
     assert payload["index"] == 1 and payload["total"] == 5
-    assert payload["acceptedAnswers"] == game.current_question.acceptedAnswers
+    assert payload["acceptedArtists"] == game.current_question.acceptedArtists
+    assert payload["acceptedTitles"] == game.current_question.acceptedTitles
     assert "answer" not in payload
     assert [e["type"] for e in events] == ["game_started", "question"]
 
@@ -169,7 +176,7 @@ def test_buzz_in_lobby_reveal_and_unknown_player():
     game.start_timer(1)
     assert game.buzz("ghost", 2)[0] == BuzzResult.UNKNOWN_PLAYER
     game.buzz("p0", 2)
-    game.submit_verdict("p0", True, 3)
+    game.submit_verdict("p0", 3, correct=True)
     assert game.phase == Phase.REVEAL
     assert game.buzz("p1", 4)[0] == BuzzResult.TOO_LATE
 
@@ -179,17 +186,17 @@ def test_buzz_in_lobby_reveal_and_unknown_player():
 def test_correct_answer_scores_and_reveals():
     game = started_game()
     game.buzz("p0", 1)
-    payload, events = game.submit_verdict("p0", True, 2)
-    assert game.players["p0"].score == 1
+    payload, events = game.submit_verdict("p0", 2, correct=True)
+    assert game.players["p0"].score == 3
     assert game.phase == Phase.REVEAL
-    assert payload["verdict"] == "correct" and payload["newScore"] == 1
+    assert payload["verdict"] == "correct" and payload["newScore"] == 3
     assert events[0]["correct"] is True and events[0]["next"] == "REVEAL"
 
 
 def test_wrong_answer_locks_player_and_reopens_buzz():
     game = started_game()
     game.buzz("p0", 1)
-    payload, events = game.submit_verdict("p0", False, 2)
+    payload, events = game.submit_verdict("p0", 2, correct=False)
     assert game.phase == Phase.BUZZ_OPEN
     assert "p0" in game.locked and game.players["p0"].score == 0
     assert game.deadline == pytest.approx(2 + game.settings.rebuzz_window_s)
@@ -202,9 +209,9 @@ def test_wrong_answer_locks_player_and_reopens_buzz():
 def test_everyone_wrong_goes_to_reveal():
     game = started_game(players=2)
     game.buzz("p0", 1)
-    game.submit_verdict("p0", False, 2)
+    game.submit_verdict("p0", 2, correct=False)
     game.buzz("p1", 3)
-    _, events = game.submit_verdict("p1", False, 4)
+    _, events = game.submit_verdict("p1", 4, correct=False)
     assert game.phase == Phase.REVEAL
     assert events[0]["allWrong"] is True
 
@@ -213,23 +220,23 @@ def test_disconnected_players_do_not_keep_the_question_open():
     game = started_game(players=2)
     game.set_connected("p1", False)
     game.buzz("p0", 1)
-    game.submit_verdict("p0", False, 2)
+    game.submit_verdict("p0", 2, correct=False)
     assert game.phase == Phase.REVEAL
 
 
 def test_verdict_for_wrong_player_or_phase_is_rejected():
     game = started_game()
     with pytest.raises(GameError):
-        game.submit_verdict("p0", True, 1)
+        game.submit_verdict("p0", 1, correct=True)
     game.buzz("p0", 1)
     with pytest.raises(GameError, match="Joueur 0"):
-        game.submit_verdict("p1", True, 2)
+        game.submit_verdict("p1", 2, correct=True)
 
 
 def test_lock_resets_on_next_question():
     game = started_game(players=1)
     game.buzz("p0", 1)
-    game.submit_verdict("p0", False, 2)
+    game.submit_verdict("p0", 2, correct=False)
     game.next_question(3)
     assert game.locked == set()
     game.start_timer(3.5)
@@ -241,8 +248,8 @@ def test_lock_resets_on_next_question():
 def test_no_buzz_times_out_to_reveal():
     game = started_game(timer=False)
     game.start_timer(5)
-    assert game.tick(24.9) == []
-    events = game.tick(25)
+    assert game.tick(29.9) == []
+    events = game.tick(30)
     assert game.phase == Phase.REVEAL
     assert events[0]["type"] == "buzz_timeout"
 
@@ -267,7 +274,7 @@ def test_answer_heard_stops_the_answer_countdown():
     assert game.player_state("p0", 12)["answered"] is True
     assert game.answer_heard(13) == []          # idempotent
     assert game.tick(18) == []                  # no "time up" once the answer is in
-    game.submit_verdict("p0", True, 14)
+    game.submit_verdict("p0", 14, correct=True)
     game.next_question(15)
     game.start_timer(15)
     game.buzz("p1", 16)
@@ -292,17 +299,17 @@ def test_late_verdict_after_hard_timeout_is_rejected():
     for t in (100, 200):  # answer window ends, hard timeout
         game.tick(t)
     with pytest.raises(GameError):
-        game.submit_verdict("p0", True, 101)
+        game.submit_verdict("p0", 101, correct=True)
 
 
 def test_pause_freezes_and_resume_restores_timer():
     game = started_game()
-    game.start_timer(0)  # deadline at 20
+    game.start_timer(0)  # deadline at 25
     game.pause(5)
     assert game.tick(100) == []
     assert game.buzz("p0", 101)[0] == BuzzResult.NOT_OPEN
     game.resume(200)
-    assert game.deadline == pytest.approx(215)
+    assert game.deadline == pytest.approx(220)
 
 
 # ------------------------------------------------------------- reveal & end
@@ -314,18 +321,19 @@ def test_reveal_answer_only_after_the_question_is_closed():
     game.buzz("p0", 1)
     with pytest.raises(GameError):
         game.reveal_answer()
-    game.submit_verdict("p0", True, 2)
-    assert game.reveal_answer()["answer"] == game.current_question.answer
+    game.submit_verdict("p0", 2, correct=True)
+    assert game.reveal_answer()["answer"] == answer_of(game)
 
 
 def test_public_state_hides_answer_until_reveal():
     game = started_game()
     state = game.public_state(1)
     assert state["question"]["text"] and state["answer"] is None
-    assert "acceptedAnswers" not in str(state)
+    song = game.current_question
+    assert song.artist not in str(state) and song.title not in str(state)
     game.buzz("p0", 1)
-    game.submit_verdict("p0", True, 2)
-    assert game.public_state(3)["answer"] == game.current_question.answer
+    game.submit_verdict("p0", 2, correct=True)
+    assert game.public_state(3)["answer"] == answer_of(game)
 
 
 def test_player_state_flags():
@@ -342,7 +350,7 @@ def test_full_game_until_finished_with_ties():
     for i in range(3):
         game.start_timer(10 * i + 0.5)
         game.buzz(f"p{i % 2}", 10 * i + 1)
-        game.submit_verdict(f"p{i % 2}", True, 10 * i + 2)
+        game.submit_verdict(f"p{i % 2}", 10 * i + 2, correct=True)
         payload, events = game.next_question(10 * i + 3)
     assert game.phase == Phase.FINISHED
     assert payload["finished"] is True
@@ -362,11 +370,11 @@ def test_ranking_ties_share_rank():
 def test_scores_are_announced_every_two_questions():
     game = started_game(total=5)
     game.buzz("p0", 1)
-    first, _ = game.submit_verdict("p0", True, 2)
+    first, _ = game.submit_verdict("p0", 2, correct=True)
     game.next_question(3)
     game.start_timer(3.5)
     game.buzz("p0", 4)
-    second, _ = game.submit_verdict("p0", True, 5)
+    second, _ = game.submit_verdict("p0", 5, correct=True)
     assert first["announceScores"] is False
     assert second["announceScores"] is True
 
@@ -374,7 +382,7 @@ def test_scores_are_announced_every_two_questions():
 def test_locked_player_spamming_is_reported_once():
     game = started_game(spam_tease_threshold=3)
     game.buzz("p0", 0)
-    game.submit_verdict("p0", False, 0.1)
+    game.submit_verdict("p0", 0.1, correct=False)
     events = []
     for i in range(6):
         events += game.buzz("p0", 1 + i)[1]
@@ -404,4 +412,4 @@ def test_timeout_reveal_keeps_answer_hidden_until_said():
     assert game.phase == Phase.REVEAL
     assert game.public_state(100)["answer"] is None
     game.reveal_answer()
-    assert game.public_state(100)["answer"] == game.current_question.answer
+    assert game.public_state(100)["answer"] == answer_of(game)

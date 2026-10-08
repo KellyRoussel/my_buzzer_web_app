@@ -1,9 +1,9 @@
-// Host screen: shows the game on the TV and bridges the game server and the voice agent.
+// Host screen: plays the songs on the TV and bridges the game server and the voice agent.
 //
 // The game server owns the state. The voice agent never holds it: it reads and changes it
 // through client tools, which this page relays to the server over the host WebSocket.
 import { QuizAgent } from "/static/agent.js";
-import { connect, escapeHtml, roomCodeFromPath, storage, wsUrl } from "/static/common.js";
+import { connect, equalizer, escapeHtml, roomCodeFromPath, scatterNotes, storage, wsUrl } from "/static/common.js";
 import { celebrate, sfx, unlockAudio } from "/static/effects.js";
 
 const code = roomCodeFromPath();
@@ -52,7 +52,7 @@ const JUDGE_NUDGE_AGAIN_MS = 12000;
 let state = null;
 let agentConfigured = false;
 let answerTimeUp = false;
-let questionSpoken = false; // has the agent actually read the current question out loud?
+let questionSpoken = false; // has the agent actually announced the current song out loud?
 let timerRequest = null; // start_timer called while the agent was still talking
 let answerHeard = []; // transcripts of the player's answer, captured while their mic was open
 let timeUpTimer = null;
@@ -97,7 +97,7 @@ function fatal(html) {
 const log = (() => {
   const list = $("log");
   const showSecrets = $("show-secrets");
-  const secretKeys = new Set(["acceptedAnswers", "answer", "artist", "title", "acceptedArtists", "acceptedTitles"]);
+  const secretKeys = new Set(["answer", "artist", "title", "year", "acceptedArtists", "acceptedTitles"]);
   return (kind, text, data) => {
     const item = document.createElement("li");
     const time = new Date().toISOString().slice(11, 23);
@@ -233,11 +233,9 @@ const agent = new QuizAgent({
     onAnswerHeard(state.answering, text);
   },
   onAgentText: (text) => {
-    if (state?.phase === "QUESTION_READING" && !questionSpoken && state.question
-        && mentionsQuestion(text, state.question.text)) {
+    if (state?.phase === "QUESTION_READING" && !questionSpoken && announcesSong(text)) {
       questionSpoken = true;
-      log("agent", "question read out loud");
-      render();
+      log("agent", "song announced out loud");
     }
   },
   onLog: log,
@@ -258,7 +256,7 @@ function onAnswerHeard(playerId, text) {
     const name = playerName(playerId);
     log("agent", "agent has not judged yet: nudging it");
     tellAgent(`JUGE: ${name} a répondu « ${text} ». Juge cette réponse maintenant avec submit_verdict `
-      + `(playerId "${playerId}"${isSongRound() ? ", avec artist et title" : ""}), puis réagis en une phrase.`);
+      + `(playerId "${playerId}", avec artist et title), puis réagis en une phrase.`);
   };
   clearJudgeNudges();
   judgeNudges = [setTimeout(nudge(false), JUDGE_NUDGE_MS), setTimeout(nudge(true), JUDGE_NUDGE_AGAIN_MS)];
@@ -269,7 +267,7 @@ function clearJudgeNudges() {
   judgeNudges = [];
 }
 
-/** start_timer tool: start the countdown once the agent has finished reading the question. */
+/** start_timer tool: start the music and the countdown once the agent has announced the song. */
 function requestTimerFromAgent() {
   if (state?.phase === "BUZZ_OPEN") return { ok: true, note: "Le chrono tourne déjà. Tais-toi et attends BUZZ ou TIMEOUT." };
   if (state?.phase !== "QUESTION_READING") throw new Error("Aucune question n'attend de chrono en ce moment.");
@@ -278,7 +276,7 @@ function requestTimerFromAgent() {
     timerRequest = setTimeout(() => startTimer("agent still talking after 15 s"), TIMER_DEFER_MAX_MS);
     log("agent", "start_timer: deferred until the agent stops talking");
   } else if (questionSpoken) {
-    startTimer("agent"); // the question has been read and the agent is silent: go
+    startTimer("agent"); // the song has been announced and the agent is silent: go
   } else {
     timerRequest = setTimeout(() => startTimer("agent did not speak after start_timer"), TIMER_SPEECH_WAIT_MS);
     log("agent", "start_timer: waiting for the agent's announcement to play");
@@ -309,9 +307,9 @@ function onAgentDone() {
   syncClip(); // reveal music back up
   if (musicHold) releaseMusic("agent done");
   if (state.phase === "QUESTION_READING") {
-    // start_timer was called during the question: the audio has now finished playing.
+    // start_timer was called during the announcement: the audio has now finished playing.
     if (timerRequest) startTimer("agent finished speaking");
-    // The agent read the question but did not call start_timer: start it after a short silence.
+    // The agent announced the song but did not call start_timer: start it after a short silence.
     else if (questionSpoken) timerFallback = setTimeout(() => startTimer("fallback, no start_timer"), TIMER_FALLBACK_MS);
   }
   if (state.phase === "REVEAL") {
@@ -333,8 +331,8 @@ function scheduleAdvance(delay = ADVANCE_NUDGE_MS) {
   advanceTimers.push(setTimeout(() => {
     if (!stillStuck()) return;
     log("agent", "agent has not moved on: nudging it");
-    tellAgent("SUITE: la question est terminée. Si la bonne réponse n'a pas été dite, appelle reveal_answer et "
-      + "annonce-la en une phrase ; puis appelle next_question tout de suite, sans attendre les joueurs.");
+    tellAgent("SUITE: la manche est terminée. Si l'artiste et le titre n'ont pas été dits, appelle reveal_answer et "
+      + "annonce-les en une phrase ; puis appelle next_question tout de suite, sans attendre les joueurs.");
     advanceTimers.push(setTimeout(async () => {
       if (!stillStuck()) return;
       log("agent", "still stuck: the host moves on");
@@ -362,12 +360,9 @@ function desiredMicOpen() {
 const normalize = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
   .replace(/\[[^\]]*\]/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 
-/** Does what the agent said contain the question? (Tolerates small rewordings.) */
-function mentionsQuestion(said, question) {
-  const saidWords = new Set(normalize(said).split(" "));
-  const keyWords = normalize(question).split(" ").filter((w) => w.length > 3);
-  if (keyWords.length === 0) return true;
-  return keyWords.filter((w) => saidWords.has(w)).length / keyWords.length >= 0.6;
+/** Did the agent announce the song ("Chanson numéro 3 !")? */
+function announcesSong(said) {
+  return normalize(said).split(" ").includes("chanson");
 }
 
 function applyMic() {
@@ -419,7 +414,7 @@ function onEvent(event) {
       questionSpoken = !agent.connected;
       clearTimerTimeouts();
       sfx("question");
-      // Without the agent, the host reads the question aloud right away: start the countdown.
+      // Without the agent, there is nothing to announce: the music starts right away.
       if (!agent.connected) action("start_timer").catch(() => {});
       break;
     case "buzz_winner": {
@@ -432,14 +427,13 @@ function onEvent(event) {
       const speed = event.reactionS != null ? ` en ${String(event.reactionS).replace(".", ",")} s` : "";
       agent.context(`BUZZ: ${event.name} (id ${event.playerId}) a buzzé en premier${speed} et répond directement `
         + "dans son micro, sans que tu l'appelles. Dès que tu entends sa réponse, juge-la avec submit_verdict "
-        + `(playerId "${event.playerId}"${isSongRound() ? ", avec artist et title" : ""}), puis réagis.`
-        + (isSongRound() ? " La musique est coupée." : ""));
+        + `(playerId "${event.playerId}", avec artist et title), puis réagis. La musique est coupée.`);
       break;
     }
     case "buzz_timeout":
       sfx("timeout");
       tellAgent("TIMEOUT: personne n'a buzzé à temps. Moque gentiment ce silence gênant, "
-        + "appelle reveal_answer, annonce la réponse, puis appelle next_question.");
+        + "appelle reveal_answer, annonce l'artiste et le titre, puis appelle next_question.");
       break;
     case "answer_time_up":
       // Time is up: the mic closes after a short tail (see MIC_TAIL_MS). If the player's answer
@@ -454,13 +448,13 @@ function onEvent(event) {
         if (answerHeard.length > 0) return; // the answer arrived: onAnswerHeard is on it
         tellAgent(`FIN_DU_TEMPS: le temps de ${event.name} est écoulé et son micro est coupé. `
           + "Juge ce que tu as entendu dans le temps imparti, en ignorant le blabla ; si tu n'as rien entendu de clair, c'est faux. "
-          + `Appelle submit_verdict (playerId "${event.playerId}"${isSongRound() ? ", avec artist et title" : ""}).`);
+          + `Appelle submit_verdict (playerId "${event.playerId}", avec artist et title).`);
       }, ANSWER_TRANSCRIPT_GRACE_MS);
       break;
     case "verdict":
       clearTimeout(timeUpTimer);
       clearJudgeNudges();
-      if (!event.correct && event.next === "BUZZ_OPEN" && isSongRound() && agent.connected) holdMusicForAgent();
+      if (!event.correct && event.next === "BUZZ_OPEN" && agent.connected) holdMusicForAgent();
       answerTimeUp = false;
       sfx(event.correct ? "correct" : "wrong");
       if (event.by !== "agent") tellAgent(verdictMessage(event));
@@ -477,15 +471,14 @@ function onEvent(event) {
 }
 
 function verdictMessage(event) {
-  const what = !event.found ? "la réponse"
-    : event.found.artist && event.found.title ? "l'artiste et le titre"
+  const what = event.found?.artist && event.found?.title ? "l'artiste et le titre"
     : event.found.artist ? "l'artiste (mais pas le titre)" : "le titre (mais pas l'artiste)";
   const who = event.by === "timeout" ? `TROP_LENT: ${event.name} n'a pas répondu à temps, c'est compté faux.`
     : event.correct ? `VERDICT_HOTE: l'hôte a validé ${what} pour ${event.name}, +${event.points} point${event.points > 1 ? "s" : ""}.`
     : `VERDICT_HOTE: l'hôte a refusé la réponse de ${event.name}.`;
   if (event.correct) return `${who} Réagis en une phrase, puis appelle next_question.`;
   if (event.next === "BUZZ_OPEN") return `${who} Chambre-le ou la en une phrase, relance ${event.remaining.join(", ")}, puis tais-toi.`;
-  return `${who} Plus personne ne peut répondre : appelle reveal_answer, annonce la réponse, puis next_question.`;
+  return `${who} Plus personne ne peut répondre : appelle reveal_answer, annonce l'artiste et le titre, puis next_question.`;
 }
 
 // ------------------------------------------------------------- controls
@@ -499,16 +492,14 @@ async function hostControl(name) {
       case "artist":
       case "title": {
         if (state?.phase !== "ANSWERING") throw new Error("Personne n'a la main.");
-        if (!isSongRound() && (name === "artist" || name === "title")) throw new Error("Pas de chanson en cours.");
         const params = { playerId: state.answering, by: "host" };
-        if (!isSongRound()) params.correct = name === "correct";
-        else if (name === "wrong") params.correct = false;
+        if (name === "wrong") params.correct = false;
         else Object.assign(params, { artist: name !== "title", title: name !== "artist" }); // "correct" = both
         await action("submit_verdict", params);
         break;
       }
       case "timer":
-        if (state?.phase !== "QUESTION_READING") throw new Error("Le chrono tourne déjà, ou aucune question n'est en cours.");
+        if (state?.phase !== "QUESTION_READING") throw new Error("La musique tourne déjà, ou aucune chanson n'est en cours.");
         startTimer("host");
         break;
       case "reveal": {
@@ -540,13 +531,9 @@ async function hostControl(name) {
 function announceQuestion(result, why) {
   if (result.finished) {
     tellAgent(`FIN: ${why}, et c'était la dernière. Gagnant·e·s : ${result.winners.join(", ")}. Annonce le podium avec panache.`);
-  } else if (result.kind === "chanson") {
+  } else {
     tellAgent(`QUESTION_HOTE: ${why} (chanson ${result.index}/${result.total}). Annonce-la en une phrase, `
       + `appelle start_timer, puis tais-toi pendant la musique. Réponse secrète : ${result.artist} — ${result.title}.`);
-  } else {
-    tellAgent(`QUESTION_HOTE: ${why} (${result.index}/${result.total}, ${result.category}). `
-      + `Lis exactement : « ${result.question} » Réponses acceptées, secrètes : ${result.acceptedAnswers.join(", ")}. `
-      + "Puis appelle start_timer et tais-toi.");
   }
 }
 
@@ -560,7 +547,7 @@ async function startGame() {
     }
     return;
   }
-  agent.say("DEPART: l'hôte lance la partie ! Fais une intro de deux phrases maximum, appelle start_game et lis la première question.");
+  agent.say("DEPART: l'hôte lance la partie ! Fais une intro de deux phrases maximum sur le thème, appelle start_game et annonce la première chanson.");
   // If the agent does not pick it up, start anyway and hand it the question.
   setTimeout(async () => {
     if (state?.phase !== "LOBBY") return;
@@ -611,11 +598,7 @@ function onPhaseChange(from, to) {
   }
 }
 
-function isSongRound() {
-  return state?.question?.kind === "song";
-}
-
-// Blind test: the host screen plays the Deezer preview while buzzing is open, pauses it when
+// The host screen plays the Deezer preview while buzzing is open, pauses it when
 // someone has the hand, and plays it softly under the agent's voice once the answer is out.
 // Before the answer, the song has priority: the agent's voice is muted while it plays.
 const REVEAL_MUSIC_VOLUME = 0.35;   // agent silent
@@ -624,9 +607,14 @@ const MUSIC_HOLD_MAX_MS = 4000;     // after a wrong answer, wait for the agent'
 let currentClip = null;
 let musicHold = null;
 
+// The record spins, the tone arm drops and the equalizer dances while the song really plays.
+for (const type of ["play", "playing", "pause", "ended", "emptied"]) {
+  $("clip").addEventListener(type, () => document.body.classList.toggle("playing", !$("clip").paused));
+}
+
 function syncClip() {
   const audio = $("clip");
-  const url = isSongRound() ? state.question.clipUrl : null;
+  const url = state.question?.clipUrl ?? null;
   if (url !== currentClip) {
     currentClip = url;
     audio.pause();
@@ -673,8 +661,8 @@ function onState(next) {
 
 function render() {
   const phase = state.phase;
-  $("room-pill").textContent = `Salle ${code}${state.mode === "blindtest" ? " · 🎵 Blind test" : ""}`;
-  for (const button of document.querySelectorAll(".song-only")) button.classList.toggle("hidden", state.mode !== "blindtest");
+  $("room-pill").textContent = `Salle ${code}`;
+  $("theme-pill").textContent = `${themeEmoji(state.theme)} ${state.theme}`;
   $("lobby").classList.toggle("hidden", phase !== "LOBBY");
   $("stage").classList.toggle("hidden", !ACTIVE_PHASES.includes(phase));
   $("finished").classList.toggle("hidden", phase !== "FINISHED");
@@ -687,6 +675,15 @@ function render() {
 
 let qrLoaded = false;
 const seenPlayers = new Set(); // only newcomers get the entrance animation
+let themeEmojis = {};
+fetch("/api/themes").then((r) => r.json()).then((themes) => {
+  themeEmojis = Object.fromEntries(themes.map((t) => [t.label, t.emoji]));
+  if (state) render();
+}).catch(() => {});
+
+function themeEmoji(label) {
+  return themeEmojis[label] ?? "🎵";
+}
 
 function renderLobby() {
   if (!qrLoaded) {
@@ -697,6 +694,8 @@ function renderLobby() {
       $("join-url").textContent = room.joinUrl;
     });
   }
+  $("lobby-theme").textContent = state.theme;
+  $("lobby-theme-emoji").textContent = themeEmoji(state.theme);
   const players = state.players;
   $("player-count").textContent = players.length ? `(${players.length})` : "";
   $("lobby-players").innerHTML = players.map((p) => {
@@ -712,19 +711,18 @@ function renderLobby() {
 
 function renderStage() {
   const question = state.question;
-  // With the agent, the question appears on screen as it is read out, not before.
-  const visible = !agent.connected || questionSpoken || state.phase !== "QUESTION_READING"
-    || question?.kind === "song"; // nothing to give away: the song is the question
-  const key = `${state.questionNumber}-${visible}`;
-  if (question && renderedQuestion !== key) {
-    renderedQuestion = key;
+  if (question && renderedQuestion !== state.questionNumber) {
+    renderedQuestion = state.questionNumber;
     // Re-insert the node to replay the entrance animation.
     const node = $("q-text");
-    node.textContent = visible ? question.text : "🎙️ Écoutez bien…";
+    node.textContent = question.text;
     node.replaceWith(node.cloneNode(true));
   }
-  $("q-progress").textContent = `Question ${state.questionNumber}/${state.totalQuestions}`;
-  if (question && !$("q-category").textContent.startsWith("⚠️")) $("q-category").textContent = question.category;
+  $("q-progress").textContent = `${state.questionNumber}/${state.totalQuestions}`;
+  if (!$("q-category").textContent.startsWith("⚠️")) {
+    $("q-category").textContent = { QUESTION_READING: "🎙️ Écoutez bien…", BUZZ_OPEN: "🎶 Qui chante ?",
+      ANSWERING: "🛎️ Buzz !", REVEAL: "💿 Réponse" }[state.phase] ?? "";
+  }
   $("paused-pill").classList.toggle("hidden", !state.paused);
 
   const answering = state.phase === "ANSWERING" ? state.answering : null;
@@ -736,9 +734,14 @@ function renderStage() {
   }
 
   $("answer").classList.toggle("hidden", !state.answer);
-  $("answer-text").textContent = state.answer ?? "";
+  $("answer-title").textContent = state.title ?? "";
+  $("answer-artist").textContent = state.artist ?? "";
+  $("answer-year").textContent = state.year ?? "";
+  $("answer-year").classList.toggle("hidden", !state.year);
+  // The record's label becomes the album cover once the answer is out.
   $("cover").classList.toggle("hidden", !state.coverUrl);
   if (state.coverUrl && $("cover").getAttribute("src") !== state.coverUrl) $("cover").src = state.coverUrl;
+  $("label-text").textContent = !state.answer ? "?" : state.coverUrl ? "" : "♪";
 
   const colors = Object.fromEntries(state.players.map((p) => [p.id, p]));
   $("scores").innerHTML = state.ranking.map((row) => {
@@ -749,8 +752,8 @@ function renderStage() {
       player?.connected === false ? "offline" : "",
     ].join(" ");
     const streak = row.streak >= 2 ? ` <span class="streak">🔥${row.streak}</span>` : "";
-    return `<li class="score-row ${classes}">
-      <span class="rank">${row.rank}.</span>
+    return `<li class="score-row top${row.rank} ${classes}">
+      <span class="rank">${row.rank}</span>
       <span class="name"><span class="swatch" style="background:${player?.color}"></span>${escapeHtml(row.name)}${streak}</span>
       <span class="pts">${row.score}</span></li>`;
   }).join("");
@@ -761,11 +764,13 @@ function renderFinished() {
   const byRank = (rank) => ranking.filter((r) => r.rank === rank);
   const step = (rank, cls) => {
     const names = byRank(rank).map((r) => escapeHtml(r.name)).join("<br>");
-    return names ? `<div class="step ${cls}"><span class="who">${names}</span><div class="block">${rank}</div></div>` : "";
+    const award = { 1: "Disque d'or", 2: "Platine… presque", 3: "Bronze" }[rank];
+    return names ? `<div class="step ${cls}"><div class="sheen vinyl"><div class="label"></div></div>`
+      + `<span class="who">${names}</span><div class="block">${award}</div></div>` : "";
   };
   $("podium").innerHTML = step(2, "r2") + step(1, "r1") + step(3, "r3");
   $("final-scores").innerHTML = ranking.map((r) =>
-    `<li class="score-row"><span class="rank">${r.rank}.</span><span class="name">${escapeHtml(r.name)}</span><span class="pts">${r.score}</span></li>`).join("");
+    `<li class="score-row top${r.rank}"><span class="rank">${r.rank}</span><span class="name">${escapeHtml(r.name)}</span><span class="pts">${r.score}</span></li>`).join("");
   if (!celebrated) {
     celebrated = true;
     celebrate($("confetti"));
@@ -790,7 +795,7 @@ function renderAgent() {
   $("agent-btn").textContent = agent.connected ? "🛑 Animateur" : "🎙️ Animateur";
   $("agent-btn").disabled = !agentConfigured;
   if (!agentConfigured) {
-    $("agent-help").textContent = "Aucun agent ElevenLabs configuré (ELEVENLABS_AGENT_ID) : lisez les questions vous-même et jugez avec les boutons.";
+    $("agent-help").textContent = "Aucun agent ElevenLabs configuré (ELEVENLABS_AGENT_ID) : lancez les extraits et jugez avec les boutons.";
   } else if (agent.connected && state?.phase === "LOBBY") {
     $("agent-help").textContent = "L'animateur vous écoute : discutez avec lui, puis démarrez la partie.";
   } else if (!$("agent-help").textContent.startsWith("Impossible")) {
@@ -813,6 +818,8 @@ if (!hostKey) {
   fatal(`Clé hôte introuvable pour la salle ${escapeHtml(code)}.<br><a href="/">Créer une nouvelle partie</a>`);
   socket.close();
 } else {
+  scatterNotes();
+  equalizer($("eq"), 28);
   renderAgent();
   animateTimer();
 }
