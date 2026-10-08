@@ -140,3 +140,12 @@ def test_player_reconnects_with_same_id(client):
 def test_unknown_room_player_socket(client):
     with client.websocket_connect("/ws/ZZZZ/player") as ws:
         assert ws.receive_json()["code"] == "room_not_found"
+
+
+def test_pages_and_scripts_are_revalidated_by_browsers():
+    from app.main import app
+    with TestClient(app) as client:
+        for path in ("/", "/static/common.js", "/static/host.js"):
+            assert client.get(path).headers["cache-control"] == "no-cache", path
+        room = client.post("/api/rooms", json={"total_questions": 1}).json()
+        assert client.get(f"/host/{room['code']}").headers["cache-control"] == "no-cache"

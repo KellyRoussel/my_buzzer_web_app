@@ -43,23 +43,25 @@ router = APIRouter()
 
 PAGES_DIR = Path(__file__).resolve().parents[1] / "static"
 MAX_WS_MESSAGE_CHARS = 4096
+# Pages and their scripts change together: make browsers revalidate them on every load.
+NO_CACHE = {"Cache-Control": "no-cache"}
 
 
 # ------------------------------------------------------------------- pages
 
 @router.get("/", include_in_schema=False)
 def landing_page():
-    return FileResponse(PAGES_DIR / "index.html")
+    return FileResponse(PAGES_DIR / "index.html", headers=NO_CACHE)
 
 
 @router.get("/host/{code}", include_in_schema=False)
 def host_page(code: str):
-    return FileResponse(PAGES_DIR / "host.html")
+    return FileResponse(PAGES_DIR / "host.html", headers=NO_CACHE)
 
 
 @router.get("/play/{code}", include_in_schema=False)
 def play_page(code: str):
-    return FileResponse(PAGES_DIR / "play.html")
+    return FileResponse(PAGES_DIR / "play.html", headers=NO_CACHE)
 
 
 # --------------------------------------------------------------------- API
