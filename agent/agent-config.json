@@ -1,10 +1,10 @@
 {
-  "name": "Quiz Host — Max",
+  "name": "Blind Test — Max",
   "language": "fr",
   "llm": "gemini-3.8-flash",
   "reasoning_effort": "minimal",
   "prompt_file": "system_prompt.fr.txt",
-  "first_message": "[excited] Bonsoir, bonsoir ! Ici Max, votre animateur. Scannez le QR code, choisissez un pseudo… et préparez déjà vos excuses pour les mauvaises réponses.",
+  "first_message": "[excited] Bonsoir, bonsoir ! Ici Max, votre animateur. Scannez le QR code, choisissez un pseudo… et chauffez vos oreilles : ce soir, c'est blind test !",
   "tts": {
     "model_id": "eleven_v3_conversational",
     "expressive_mode": true
@@ -20,35 +20,35 @@
     {
       "type": "client",
       "name": "get_game_state",
-      "description": "Renvoie l'état du jeu : phase, numéro de question, joueurs, scores, qui a la main et la prochaine étape (nextStep). À utiliser pour se resynchroniser à tout moment.",
+      "description": "Renvoie l'état du jeu : phase, thème, numéro de la chanson, joueurs, scores, qui a la main et la prochaine étape (nextStep). À utiliser pour se resynchroniser à tout moment.",
       "expects_response": true,
       "response_timeout_secs": 5
     },
     {
       "type": "client",
       "name": "start_game",
-      "description": "Sort du lobby et démarre la partie. Renvoie la première question à lire, avec ses réponses acceptées (secrètes).",
+      "description": "Sort du lobby et démarre la partie. Renvoie le thème et la première chanson, avec l'artiste et le titre (secrets).",
       "expects_response": true,
       "response_timeout_secs": 5
     },
     {
       "type": "client",
       "name": "next_question",
-      "description": "Passe à la question suivante et la renvoie (en quiz : catégorie, question, réponses acceptées secrètes ; en blind test : kind « chanson » avec l'artiste et le titre secrets). Après la dernière, renvoie finished: true et le podium.",
+      "description": "Passe à la chanson suivante et la renvoie, avec l'artiste et le titre secrets. Après la dernière, renvoie finished: true et le podium.",
       "expects_response": true,
       "response_timeout_secs": 5
     },
     {
       "type": "client",
       "name": "start_timer",
-      "description": "Lance le chrono de la question (et, en blind test, la musique) : à appeler juste après avoir lu la question ou annoncé la chanson, et jamais avant. Les joueurs ne peuvent buzzer qu'une fois le chrono lancé.",
+      "description": "Lance la musique et le chrono de la chanson : à appeler juste après avoir annoncé la chanson, et jamais avant. Les joueurs ne peuvent buzzer qu'une fois le chrono lancé.",
       "expects_response": true,
       "response_timeout_secs": 5
     },
     {
       "type": "client",
       "name": "submit_verdict",
-      "description": "Juge la réponse du joueur qui a la main. Quiz : passe correct. Blind test : passe artist et title (1 point pour l'artiste, 1 pour le titre, 3 pour les deux). Renvoie le nouvel état, les scores et la prochaine étape.",
+      "description": "Juge la réponse du joueur qui a la main : passe artist et title (1 point pour l'artiste, 1 pour le titre, 3 pour les deux). Renvoie le nouvel état, les scores et la prochaine étape.",
       "expects_response": true,
       "response_timeout_secs": 5,
       "parameters": {
@@ -61,17 +61,17 @@
             "type": "string",
             "description": "L'id du joueur qui a buzzé, tel que donné dans le message BUZZ."
           },
-          "correct": {
-            "type": "boolean",
-            "description": "Quiz : true si la réponse est correcte, false sinon. En blind test, correct=false veut dire « rien de bon »."
-          },
           "artist": {
             "type": "boolean",
-            "description": "Blind test : true si le joueur a trouvé l'artiste."
+            "description": "true si le joueur a trouvé l'artiste."
           },
           "title": {
             "type": "boolean",
-            "description": "Blind test : true si le joueur a trouvé le titre."
+            "description": "true si le joueur a trouvé le titre."
+          },
+          "correct": {
+            "type": "boolean",
+            "description": "Raccourci : true si le joueur a trouvé l'artiste et le titre, false si rien n'est bon. Préfère artist et title."
           }
         }
       }
@@ -79,7 +79,7 @@
     {
       "type": "client",
       "name": "reveal_answer",
-      "description": "Renvoie la réponse officielle (en blind test : artiste et titre) de la question en cours, une fois la question close (bonne réponse, timeout ou plus personne pour répondre).",
+      "description": "Renvoie l'artiste, le titre et l'année de la chanson en cours, une fois la manche close (bonne réponse, timeout ou plus personne pour répondre).",
       "expects_response": true,
       "response_timeout_secs": 5
     },

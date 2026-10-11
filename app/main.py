@@ -1,4 +1,4 @@
-"""Quiz Host app: pages, REST API and WebSockets.
+"""Blind Test app: pages, REST API and WebSockets.
 
     uvicorn app.main:app --reload
 
@@ -28,7 +28,7 @@ class RevalidatedStaticFiles(StaticFiles):
         return response
 
 
-app = FastAPI(title="Quiz Host")
+app = FastAPI(title="Blind Test")
 app.include_router(router)
 app.mount("/static", RevalidatedStaticFiles(directory=PAGES_DIR), name="static")
 

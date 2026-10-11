@@ -89,3 +89,35 @@ export function storage(kind = "session") {
     },
   };
 }
+
+const NOTE_GLYPHS = ["♪", "♫", "♬", "♩"];
+const NOTE_COLORS = ["#ff2e88", "#25e3ff", "#ffc93c", "#9d5cff"];
+
+/** Background decoration: music notes drifting up the page. */
+export function scatterNotes(count = 14) {
+  const layer = document.createElement("div");
+  layer.className = "notes";
+  layer.setAttribute("aria-hidden", "true");
+  for (let i = 0; i < count; i++) {
+    const note = document.createElement("span");
+    note.textContent = NOTE_GLYPHS[i % NOTE_GLYPHS.length];
+    note.style.left = `${(i * 97) % 100}%`;
+    note.style.setProperty("--s", `${1.2 + ((i * 7) % 5) * 0.5}rem`);
+    note.style.setProperty("--c", NOTE_COLORS[i % NOTE_COLORS.length]);
+    note.style.setProperty("--d", `${14 + ((i * 5) % 12)}s`);
+    note.style.setProperty("--delay", `${-((i * 3.7) % 20)}s`);
+    layer.append(note);
+  }
+  document.body.prepend(layer);
+}
+
+/** Fills an element with equalizer bars, each with its own tempo (animated by CSS). */
+export function equalizer(element, bars = 24) {
+  element.replaceChildren(...Array.from({ length: bars }, (_, i) => {
+    const bar = document.createElement("span");
+    bar.style.setProperty("--d", `${0.45 + ((i * 37) % 50) / 100}s`);
+    bar.style.setProperty("--delay", `${-((i * 13) % 40) / 100}s`);
+    bar.style.setProperty("--h", `${55 + ((i * 29) % 45)}%`);
+    return bar;
+  }));
+}

@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quiz Host · Plateau</title>
+  <title>Blind Test · Plateau</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/quiz.css">
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Monoton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/base.css">
   <link rel="stylesheet" href="/static/host.css">
 </head>
 <body>
   <header class="bar">
-    <span class="brand title-font">Quiz Host</span>
+    <span class="brand neon">Blind Test</span>
     <span class="pill title-font" id="room-pill">Salle ····</span>
+    <span class="pill theme" id="theme-pill"></span>
     <span class="spacer"></span>
     <span class="pill" id="agent-pill"><span class="dot"></span><span id="agent-text">Animateur absent</span></span>
     <span class="pill" id="mic-pill"><span id="mic-text">🎙️ Micro coupé</span></span>
@@ -25,12 +26,19 @@
   <main id="lobby" class="lobby hidden">
     <section class="panel join">
       <h2>Scannez pour jouer</h2>
-      <img id="qr" alt="QR code pour rejoindre la partie">
+      <div class="sleeve"><img id="qr" alt="QR code pour rejoindre la partie"></div>
       <p class="code-line">ou allez sur <strong id="join-url"></strong></p>
       <p class="code-big title-font" id="code-big"></p>
     </section>
     <section class="panel players">
-      <h2>Joueurs <span class="muted" id="player-count"></span></h2>
+      <div class="theme-banner">
+        <span class="theme-emoji" id="lobby-theme-emoji">🎵</span>
+        <div>
+          <span class="muted small">Playlist du soir</span>
+          <strong class="title-font" id="lobby-theme"></strong>
+        </div>
+      </div>
+      <h2>Sur la piste <span class="muted" id="player-count"></span></h2>
       <ul id="lobby-players" class="chips"></ul>
       <p class="muted" id="lobby-hint">On attend les retardataires. Il y en a toujours un.</p>
       <div class="actions">
@@ -43,49 +51,60 @@
 
   <!-- In game -->
   <main id="stage" class="stage hidden">
-    <section class="question-area">
-      <div class="meta">
-        <span class="pill title-font" id="q-progress"></span>
-        <span class="pill" id="q-category"></span>
-        <span class="pill warn hidden" id="paused-pill">⏸️ Pause</span>
+    <section class="deck">
+      <div class="turntable">
+        <div class="sheen platter">
+          <div class="vinyl" id="vinyl">
+            <div class="label" id="vinyl-label"><img id="cover" class="hidden" alt=""></div>
+          </div>
+          <span id="label-text" class="label-text title-font">?</span>
+        </div>
+        <div class="tonearm" aria-hidden="true"><span></span></div>
       </div>
-      <h1 id="q-text" class="question"></h1>
-      <div class="timer"><div id="timer-bar"></div></div>
-      <div id="answering" class="answering hidden">
-        <span class="dot"></span><span id="answering-text"></span>
-      </div>
-      <div id="answer" class="answer hidden">
-        <img id="cover" class="cover hidden" alt="">
-        <div>
-          <span class="muted">Réponse</span>
-          <strong id="answer-text"></strong>
+      <div class="now-playing">
+        <div class="meta">
+          <span class="pill title-font" id="q-progress"></span>
+          <span class="pill" id="q-category"></span>
+          <span class="pill warn hidden" id="paused-pill">⏸️ Pause</span>
+        </div>
+        <h1 id="q-text" class="question"></h1>
+        <div class="eq" id="eq" aria-hidden="true"></div>
+        <div class="timer"><div id="timer-bar"></div></div>
+        <div id="answering" class="answering hidden">
+          <span class="dot"></span><span id="answering-text"></span>
+        </div>
+        <div id="answer" class="answer hidden">
+          <span class="muted">C'était</span>
+          <strong id="answer-title"></strong>
+          <span id="answer-artist"></span>
+          <span class="year hidden" id="answer-year"></span>
         </div>
       </div>
       <audio id="clip" preload="auto"></audio>
     </section>
     <aside class="panel scoreboard">
-      <h2>Scores</h2>
+      <h2>🏆 Top des charts</h2>
       <ol id="scores"></ol>
     </aside>
   </main>
 
   <!-- Finished -->
   <main id="finished" class="finished hidden">
-    <h1 class="title-font">Et le grand gagnant est…</h1>
+    <h1 class="neon">Disque d'or pour…</h1>
     <div id="podium" class="podium"></div>
     <ol id="final-scores" class="final-scores"></ol>
-    <button id="new-game" class="secondary">Nouvelle partie</button>
+    <button id="new-game" class="big-cta">🎧 Nouvelle partie</button>
   </main>
   <canvas id="confetti" class="confetti"></canvas>
 
   <footer class="controls hidden" id="controls">
-    <button class="good" data-action="correct" title="Raccourci : C">✅ Correct</button>
-    <button class="good song-only hidden" data-action="artist" title="Raccourci : A">🎤 Artiste</button>
-    <button class="good song-only hidden" data-action="title" title="Raccourci : S">🎵 Titre</button>
+    <button class="good" data-action="correct" title="Raccourci : C">✅ Les deux</button>
+    <button class="good" data-action="artist" title="Raccourci : A">🎤 Artiste</button>
+    <button class="good" data-action="title" title="Raccourci : S">🎵 Titre</button>
     <button class="bad" data-action="wrong" title="Raccourci : F">❌ Faux</button>
-    <button class="secondary" data-action="timer" title="Raccourci : T">⏱️ Chrono</button>
+    <button class="secondary" data-action="timer" title="Raccourci : T">▶️ Musique</button>
     <button class="secondary" data-action="reveal" title="Raccourci : R">💡 Réponse</button>
-    <button class="secondary" data-action="next" title="Raccourci : N">⏭️ Question suivante</button>
+    <button class="secondary" data-action="next" title="Raccourci : N">⏭️ Chanson suivante</button>
     <button class="secondary" data-action="pause" id="pause-btn" title="Raccourci : P">⏸️ Pause</button>
     <button class="secondary" data-action="agent" id="agent-btn">🎙️ Animateur</button>
   </footer>

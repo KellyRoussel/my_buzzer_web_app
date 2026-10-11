@@ -1,4 +1,4 @@
-"""Blind test mode: song rounds, artist/title scoring, Deezer preview lookup."""
+"""Song rounds, artist/title scoring, themes and the Deezer preview lookup."""
 import asyncio
 import random
 
@@ -10,9 +10,8 @@ from fastapi.testclient import TestClient
 import app.routes as routes
 from app.deezer import find_preview, prepare_song_deck
 from app.game import Game, GameError, GameSettings, Phase
-from app.models import SongQuestion
-from app.questions import load_songs
-from tests.test_game import started_game
+from app.models import SongQuestion, Theme
+from app.songs import get_theme, load_songs, load_themes, songs_for_theme
 
 
 def make_songs(n: int = 6) -> list[SongQuestion]:
@@ -40,13 +39,14 @@ def buzzed(game: Game, player: str = "p0") -> Game:
 
 # ------------------------------------------------------------------ game
 
-def test_song_game_reports_blindtest_mode_and_uses_the_song_window():
-    game = song_game(song_window_s=25)
+def test_song_game_reports_its_theme_and_uses_the_song_window():
+    game = Game(make_songs(), GameSettings(total_questions=3, buzz_window_s=25), theme="Années 80")
+    game.add_player("p0", "Léa")
     payload, events = game.start_game(0)
-    assert game.mode == "blindtest" and payload["mode"] == "blindtest"
-    assert payload["kind"] == "chanson" and payload["acceptedArtists"] and payload["acceptedTitles"]
-    events = game.start_timer(1)
-    assert events[0]["song"] is True
+    assert payload["theme"] == "Années 80" and events[0] == {"type": "game_started", "theme": "Années 80"}
+    assert game.public_state(0)["theme"] == "Années 80" and game.agent_state()["theme"] == "Années 80"
+    assert payload["acceptedArtists"] and payload["acceptedTitles"]
+    game.start_timer(1)
     assert game.deadline == pytest.approx(26)
 
 
@@ -55,7 +55,7 @@ def test_host_screen_gets_the_clip_but_not_the_answer():
     game.start_game(0)
     state = game.public_state(0)
     song = game.current_question
-    assert state["question"]["kind"] == "song" and state["question"]["clipUrl"] == song.preview_url
+    assert state["question"]["clipUrl"] == song.preview_url
     assert song.artist not in str(state) and song.title not in str(state)
     assert "coverUrl" not in state
 
@@ -63,7 +63,7 @@ def test_host_screen_gets_the_clip_but_not_the_answer():
 @pytest.mark.parametrize("artist,title,points", [(True, False, 1), (False, True, 1), (True, True, 3)])
 def test_song_scoring(artist, title, points):
     game = buzzed(song_game())
-    payload, events = game.submit_verdict("p0", None, 3, artist=artist, title=title)
+    payload, events = game.submit_verdict("p0", 3, artist=artist, title=title)
     assert game.players["p0"].score == points
     assert payload["points"] == points and events[0]["points"] == points
     assert events[0]["found"] == {"artist": artist, "title": title}
@@ -73,45 +73,67 @@ def test_song_scoring(artist, title, points):
 
 def test_song_nothing_found_locks_the_player():
     game = buzzed(song_game())
-    _, events = game.submit_verdict("p0", None, 3, artist=False, title=False)
+    _, events = game.submit_verdict("p0", 3, artist=False, title=False)
     assert events[0]["correct"] is False and "p0" in game.locked
     assert game.phase == Phase.BUZZ_OPEN
 
 
 def test_song_plain_correct_counts_as_both_and_plain_wrong_as_nothing():
     game = buzzed(song_game())
-    payload, _ = game.submit_verdict("p0", True, 3)
+    payload, _ = game.submit_verdict("p0", 3, correct=True)
     assert payload["points"] == 3 and game.players["p0"].score == 3
     game = buzzed(song_game())
-    game.submit_verdict("p0", False, 3)
+    game.submit_verdict("p0", 3, correct=False)
     assert game.players["p0"].score == 0 and "p0" in game.locked
 
 
-def test_song_reveal_shows_artist_title_and_cover():
+def test_song_reveal_shows_artist_title_year_and_cover():
     game = buzzed(song_game())
-    game.submit_verdict("p0", None, 3, artist=True, title=True)
+    game.submit_verdict("p0", 3, artist=True, title=True)
     song = game.current_question
-    assert game.reveal_answer() == {"artist": song.artist, "title": song.title,
+    assert game.reveal_answer() == {"artist": song.artist, "title": song.title, "year": song.year,
                                     "answer": f"{song.artist} — {song.title}"}
     state = game.public_state(4)
     assert state["answer"] == f"{song.artist} — {song.title}" and state["coverUrl"] == song.cover_url
+    assert (state["artist"], state["title"]) == (song.artist, song.title)
 
 
-def test_quiz_verdict_requires_correct():
-    game = started_game()
-    game.buzz("p0", 1)
+def test_verdict_requires_artist_and_title_or_correct():
+    game = buzzed(song_game())
     with pytest.raises(GameError):
-        game.submit_verdict("p0", None, 2)
+        game.submit_verdict("p0", 3)
 
 
-def test_song_list_is_well_formed():
+# ------------------------------------------------------- songs and themes
+
+def test_song_list_is_large_and_well_formed():
     songs = load_songs()
-    assert len(songs) >= 30
-    assert len({(s.artist, s.title) for s in songs}) == len(songs)
+    assert len(songs) >= 200
+    assert len({(s.artist.casefold(), s.title.casefold()) for s in songs}) == len(songs)
+    tags = {tag for theme in load_themes() for tag in theme.tags}
     for song in songs:
         assert song.acceptedArtists and song.acceptedTitles, song.id
         assert all(a == a.lower() for a in song.acceptedArtists + song.acceptedTitles), song.id
+        assert song.year and 1930 <= song.year <= 2030, song.id
+        assert set(song.tags) <= tags, song.id
         assert song.preview_url is None
+
+
+def test_every_theme_has_enough_songs_for_a_long_game():
+    themes = load_themes()
+    assert themes[0].id == "mix" and len(songs_for_theme(themes[0])) == len(load_songs())
+    for theme in themes:
+        assert len(songs_for_theme(theme)) >= 25, theme.id
+
+
+def test_theme_matches_years_and_tags():
+    song = SongQuestion(id="s", artist="A", title="T", year=1985, tags=["fete"])
+    assert Theme(id="x", label="x", emoji="x").matches(song)
+    assert Theme(id="x", label="x", emoji="x", years=(1980, 1989)).matches(song)
+    assert not Theme(id="x", label="x", emoji="x", years=(1990, 1999)).matches(song)
+    assert Theme(id="x", label="x", emoji="x", tags=["rap", "fete"]).matches(song)
+    assert not Theme(id="x", label="x", emoji="x", tags=["rap"]).matches(song)
+    assert get_theme("annees-80").matches(song) and get_theme("nope") is None
 
 
 # ---------------------------------------------------------------- deezer
@@ -173,27 +195,36 @@ def test_prepare_song_deck_skips_songs_missing_on_deezer():
 
 # ------------------------------------------------------------------- api
 
-def test_create_blindtest_room(monkeypatch):
-    async def fake_deck(songs, total, **kwargs):
-        return make_songs(total)
-
-    monkeypatch.setattr(routes, "prepare_song_deck", fake_deck)
+@pytest.fixture
+def client():
     app = FastAPI()
     app.include_router(routes.router)
-    with TestClient(app) as client:
-        response = client.post("/api/rooms", json={"total_questions": 4, "mode": "blindtest"})
-        assert response.status_code == 200
-        summary = client.get(f"/api/rooms/{response.json()['code']}").json()
-        assert summary["mode"] == "blindtest"
+    with TestClient(app) as test_client:
+        yield test_client
 
 
-def test_blindtest_room_fails_cleanly_when_deezer_is_unreachable(monkeypatch):
+def test_themes_endpoint_lists_every_theme_with_its_song_count(client):
+    themes = client.get("/api/themes").json()
+    assert [t["id"] for t in themes] == [t.id for t in load_themes()]
+    assert all(t["songCount"] >= 25 and t["label"] and t["emoji"] for t in themes)
+
+
+def test_create_room_draws_songs_from_the_theme(client):
+    response = client.post("/api/rooms", json={"total_questions": 10, "theme": "annees-80"})
+    assert response.status_code == 200
+    code = response.json()["code"]
+    assert client.get(f"/api/rooms/{code}").json()["theme"] == "Années 80"
+    deck = routes.room_manager.get(code).game.deck
+    assert len(deck) == 10 and all(1980 <= song.year <= 1989 for song in deck)
+
+
+def test_unknown_theme_is_rejected(client):
+    assert client.post("/api/rooms", json={"total_questions": 4, "theme": "nope"}).status_code == 404
+
+
+def test_room_creation_fails_cleanly_when_deezer_is_unreachable(client, monkeypatch):
     async def no_deck(songs, total, **kwargs):
         return []
 
     monkeypatch.setattr(routes, "prepare_song_deck", no_deck)
-    app = FastAPI()
-    app.include_router(routes.router)
-    with TestClient(app) as client:
-        response = client.post("/api/rooms", json={"total_questions": 4, "mode": "blindtest"})
-        assert response.status_code == 502
+    assert client.post("/api/rooms", json={"total_questions": 4}).status_code == 502

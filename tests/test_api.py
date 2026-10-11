@@ -95,7 +95,7 @@ def test_full_round_over_websockets(client):
 
         result = host_action(host, "start_game")
         assert result["ok"] and result["data"]["index"] == 1
-        assert result["data"]["acceptedAnswers"]
+        assert result["data"]["acceptedArtists"] and result["data"]["acceptedTitles"]
 
         # Buzzing before the timer starts is too early.
         players[2][0].send_json({"type": "buzz"})
@@ -114,8 +114,9 @@ def test_full_round_over_websockets(client):
         wrong_player = host_action(host, "submit_verdict", {"playerId": players[1][1], "correct": True}, "2")
         assert not wrong_player["ok"] and "Léa" in wrong_player["error"]
 
-        verdict = host_action(host, "submit_verdict", {"playerId": players[0][1], "correct": "true"}, "3")
-        assert verdict["ok"] and verdict["data"]["verdict"] == "correct"
+        verdict = host_action(host, "submit_verdict", {"playerId": players[0][1], "artist": "true",
+                                                       "title": False}, "3")
+        assert verdict["ok"] and verdict["data"]["verdict"] == "correct" and verdict["data"]["points"] == 1
 
         state = receive_until(players[0][0], lambda m: m["type"] == "state" and m["state"]["phase"] == "REVEAL")
         assert state["state"]["me"]["score"] == 1 and state["state"]["answer"]

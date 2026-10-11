@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Quiz Host: a party quiz where an ElevenLabs Agents voice host reads the questions and players buzz from their phones' browsers. See `README.md` for the design and `DX_NOTES.md` for SDK notes.
+Blind Test: a French-song blind test where the TV plays Deezer extracts, an ElevenLabs Agents voice host (Max) runs the game, and players buzz from their phones' browsers. Songs live in `data/songs.fr.json`, playlists (themes by years and/or tags) in `data/themes.fr.json`. See `README.md` for the design and `DX_NOTES.md` for SDK notes.
 
 ## Commands
 

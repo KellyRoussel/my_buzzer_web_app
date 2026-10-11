@@ -2,11 +2,12 @@
 
 Pages:
 - GET  /                      landing page: create a room
-- GET  /host/{code}           host screen (TV): QR code, question, scores, voice agent
+- GET  /host/{code}           host screen (TV): QR code, song, scores, voice agent
 - GET  /play/{code}           player phone: nickname + BUZZ button
 
 API:
-- POST /api/rooms                    create a room, returns its host key
+- GET  /api/themes                   themes to pick the songs from, with their song counts
+- POST /api/rooms                    create a room for a theme, returns its host key
 - GET  /api/rooms/{code}             room summary (used by the player page)
 - GET  /api/rooms/{code}/qr.svg      QR code of the join URL
 - GET  /api/rooms/{code}/eleven-token  agent session credentials (host key required)
@@ -35,7 +36,7 @@ from app.deezer import prepare_song_deck
 from app.elevenlabs import ElevenLabsError, get_conversation_token
 from app.room import Room, room_manager, run_safely
 from app.models import CreateRoomRequest, CreateRoomResponse
-from app.questions import load_songs
+from app.songs import get_theme, load_themes, songs_for_theme
 
 logger = logging.getLogger(__name__)
 
@@ -91,16 +92,26 @@ def _check_host_key(room: Room, key: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid host key")
 
 
+@router.get("/api/themes")
+async def list_themes():
+    return [
+        {"id": theme.id, "label": theme.label, "emoji": theme.emoji, "description": theme.description,
+         "songCount": len(songs_for_theme(theme))}
+        for theme in load_themes()
+    ]
+
+
 @router.post("/api/rooms", response_model=CreateRoomResponse)
 async def create_room(body: CreateRoomRequest, request: Request):
-    songs = None
-    if body.mode == "blindtest":
-        # Song previews come from Deezer and expire: look them up now, for this game only.
-        songs = await prepare_song_deck(list(load_songs()), body.total_questions)
-        if not songs:
-            raise HTTPException(status_code=502, detail="Impossible de récupérer les extraits chez Deezer")
+    theme = get_theme(body.theme)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="Thème inconnu")
+    # Song previews come from Deezer and expire: look them up now, for this game only.
+    songs = await prepare_song_deck(songs_for_theme(theme), body.total_questions)
+    if not songs:
+        raise HTTPException(status_code=502, detail="Impossible de récupérer les extraits chez Deezer")
     try:
-        room = room_manager.create(len(songs) if songs else body.total_questions, songs)
+        room = room_manager.create(len(songs), songs, theme.label)
     except RuntimeError:
         raise HTTPException(status_code=503, detail="Too many open rooms, try again later")
     base = _public_base_url(request)
@@ -119,7 +130,7 @@ async def room_summary(code: str, request: Request):
         "code": room.code,
         "phase": room.game.phase.value,
         "playerCount": len(room.game.players),
-        "mode": room.game.mode,
+        "theme": room.game.theme,
         "joinUrl": _join_url(request, room.code),
         "agentConfigured": bool(settings.elevenlabs_agent_id),
     }

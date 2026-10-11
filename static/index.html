@@ -3,45 +3,87 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quiz Host</title>
+  <meta name="theme-color" content="#0b0718">
+  <title>Blind Test</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/quiz.css">
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Monoton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/base.css">
   <style>
-    main { max-width: 560px; margin: 0 auto; padding: 8vh 16px 32px; display: grid; gap: 1.5rem; }
-    .logo { font-size: clamp(2.6rem, 9vw, 4rem); margin: 0; line-height: 1; color: var(--accent); text-shadow: 0 0 30px rgba(255, 210, 61, 0.4); }
-    .tagline { margin: 0.5rem 0 0; color: var(--muted); font-size: 1.1rem; }
-    form { display: grid; gap: 0.9rem; }
-    label { display: grid; gap: 0.4rem; font-weight: 600; }
+    main { max-width: 920px; margin: 0 auto; padding: 6vh 16px 40px; display: grid; gap: 1.5rem; }
+    .hero { display: flex; align-items: center; gap: clamp(1rem, 4vw, 2.5rem); }
+    .hero .vinyl { width: clamp(110px, 22vw, 190px); flex: none; animation-play-state: running; animation-duration: 3s; }
+    .hero .vinyl .label { --label: linear-gradient(135deg, var(--pink), var(--violet)); font-family: var(--title-font); font-size: clamp(0.8rem, 2vw, 1.3rem); color: white; }
+    .logo { font-size: clamp(2.6rem, 9vw, 5.2rem); margin: 0; line-height: 1.05; animation: flicker 6s infinite; }
+    .tagline { margin: 0.6rem 0 0; color: var(--muted); font-size: 1.1rem; max-width: 46ch; }
+    form { display: grid; gap: 1.1rem; }
+    fieldset { border: 0; padding: 0; margin: 0; }
+    legend { font-weight: 800; margin-bottom: 0.7rem; }
+    .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.75rem; }
+    .theme-card {
+      position: relative;
+      display: grid;
+      gap: 0.25rem;
+      padding: 0.95rem 1rem;
+      border-radius: 16px;
+      border: 1px solid var(--panel-border);
+      background: rgba(0, 0, 0, 0.25);
+      cursor: pointer;
+      transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .theme-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.3); }
+    .theme-card input { position: absolute; opacity: 0; pointer-events: none; }
+    .theme-card .emoji { font-size: 1.9rem; line-height: 1; }
+    .theme-card strong { font-family: var(--title-font); font-weight: 400; font-size: 1rem; }
+    .theme-card .desc { color: var(--muted); font-size: 0.88rem; }
+    .theme-card .count { font-size: 0.78rem; color: var(--cyan); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+    .theme-card:has(input:checked) {
+      border-color: var(--pink);
+      background: linear-gradient(160deg, rgba(255, 46, 136, 0.22), rgba(157, 92, 255, 0.14));
+      box-shadow: 0 0 0 1px var(--pink), 0 10px 30px rgba(255, 46, 136, 0.25);
+    }
+    .theme-card:has(input:focus-visible) { outline: 2px solid var(--cyan); outline-offset: 2px; }
+    .options { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
+    .options label { display: grid; gap: 0.4rem; font-weight: 800; flex: 1; min-width: 220px; }
+    .options button { flex: 1; min-width: 220px; }
     .row { display: flex; gap: 0.6rem; }
-    .row input { flex: 1; text-transform: uppercase; letter-spacing: 0.2em; min-width: 0; }
+    .row input { flex: 1; text-transform: uppercase; letter-spacing: 0.3em; min-width: 0; font-family: var(--title-font); }
     .error { color: var(--red); min-height: 1.2em; margin: 0; }
+    .loading { color: var(--muted); }
+    @media (max-width: 560px) {
+      .hero { flex-direction: column; text-align: center; }
+      .themes { grid-template-columns: 1fr 1fr; }
+      .theme-card .desc { display: none; }
+    }
   </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1 class="logo">Quiz Host</h1>
-    <p class="tagline">Un animateur vocal un brin moqueur, des buzzers sur vos téléphones. Que le meilleur gagne (et que les autres assument).</p>
+  <header class="hero">
+    <div class="sheen"><div class="vinyl"><div class="label">♪</div></div></div>
+    <div>
+      <h1 class="logo neon">Blind Test</h1>
+      <p class="tagline">Max, un animateur vocal un brin moqueur, lance les extraits ; vous buzzez depuis vos téléphones. Artiste, titre… ou silence gênant.</p>
+    </div>
   </header>
 
   <section class="panel">
     <h2>Créer une partie</h2>
     <form id="create-form">
-      <label>Jeu
-        <select name="mode">
-          <option value="quiz" selected>Quiz de culture générale</option>
-          <option value="blindtest">Blind test : chansons françaises 🎵</option>
-        </select>
-      </label>
-      <label>Nombre de manches
-        <select name="total">
-          <option value="5" selected>5 — format apéro</option>
-          <option value="10">10 — soirée sérieuse</option>
-          <option value="15">15 — marathon</option>
-        </select>
-      </label>
-      <button type="submit">Ouvrir le plateau</button>
+      <fieldset>
+        <legend>Choisissez la playlist</legend>
+        <div class="themes" id="themes"><p class="loading">Chargement des playlists…</p></div>
+      </fieldset>
+      <div class="options">
+        <label>Nombre de chansons
+          <select name="total">
+            <option value="5">5 — format apéro</option>
+            <option value="10" selected>10 — soirée sérieuse</option>
+            <option value="15">15 — marathon</option>
+            <option value="20">20 — jusqu'au bout de la nuit</option>
+          </select>
+        </label>
+        <button type="submit" class="big-cta" id="create-btn">🎧 Ouvrir le plateau</button>
+      </div>
       <p class="error" id="create-error"></p>
     </form>
   </section>
@@ -56,22 +98,47 @@
 </main>
 
 <script type="module">
-  import { storage } from "/static/common.js";
+  import { escapeHtml, scatterNotes, storage } from "/static/common.js";
 
   const session = storage("session");
+  const local = storage("local");
+  scatterNotes();
+
+  async function loadThemes() {
+    const container = document.getElementById("themes");
+    try {
+      const themes = await (await fetch("/api/themes")).json();
+      const remembered = local.get("blindtest.theme");
+      const selected = themes.some((t) => t.id === remembered) ? remembered : themes[0]?.id;
+      container.innerHTML = themes.map((t) => `
+        <label class="theme-card">
+          <input type="radio" name="theme" value="${escapeHtml(t.id)}" ${t.id === selected ? "checked" : ""}>
+          <span class="emoji" aria-hidden="true">${escapeHtml(t.emoji)}</span>
+          <strong>${escapeHtml(t.label)}</strong>
+          <span class="desc">${escapeHtml(t.description)}</span>
+          <span class="count">${t.songCount} chansons</span>
+        </label>`).join("");
+    } catch (err) {
+      container.innerHTML = `<p class="error">Impossible de charger les playlists : ${escapeHtml(err.message)}</p>`;
+    }
+  }
+  loadThemes();
 
   document.getElementById("create-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const error = document.getElementById("create-error");
+    const button = document.getElementById("create-btn");
     error.textContent = "";
     const form = new FormData(event.target);
-    const total = Number(form.get("total"));
-    const mode = form.get("mode");
+    const theme = form.get("theme") || "mix";
+    local.set("blindtest.theme", theme);
+    button.disabled = true;
+    button.textContent = "⏳ On sort les vinyles…";
     try {
       const response = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ total_questions: total, mode }),
+        body: JSON.stringify({ total_questions: Number(form.get("total")), theme }),
       });
       if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
       const room = await response.json();
@@ -80,6 +147,8 @@
       location.href = `/host/${room.code}#key=${encodeURIComponent(room.host_key)}`;
     } catch (err) {
       error.textContent = `Impossible de créer la partie : ${err.message}`;
+      button.disabled = false;
+      button.textContent = "🎧 Ouvrir le plateau";
     }
   });
 
